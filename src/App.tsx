@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { PlaceSelect, BirthPlaceInput } from "./PlaceSelect";
+import { STATI, LUOGHI, DOCUMENTI, EMPTY_BIRTH, BirthGeo, birthGeoToPayload, birthGeoFromCustomer, normalizeDocType, validPlaceCode, findPlace, placeLabel } from "./places";
 import { Login } from "./Login";
 import { PlanningGrid } from "./PlanningGrid";
 import {
@@ -37,6 +39,8 @@ import {
   Search,
   Repeat,
   CalendarPlus,
+  Mail,
+  Ellipsis,
 } from "lucide-react";
 import { CustomersPage } from "./CustomersPage";
 import { StatisticsPage } from "./StatisticsPage";
@@ -47,28 +51,6 @@ import { AcceptInvitePage } from "./AcceptInvitePage";
 import Swal from "sweetalert2";
 import { PublicCheckinPage } from "./PublicCheckinPage";
 import { DocumentScanner } from "./DocumentScanner";
-const CITIZENSHIP_OPTIONS = [
-  { name: "Italia", code: "100000100" },
-  { name: "Germania", code: "100000012" },
-  { name: "Francia", code: "100000021" },
-  { name: "Spagna", code: "100000046" },
-  { name: "Regno Unito", code: "100000027" },
-  { name: "Stati Uniti", code: "100000201" },
-  { name: "Svizzera", code: "100000047" },
-  { name: "Austria", code: "100000003" },
-  { name: "Belgio", code: "100000004" },
-  { name: "Paesi Bassi", code: "100000034" },
-  { name: "Polonia", code: "100000036" },
-  { name: "Romania", code: "100000041" },
-  { name: "Russia", code: "100000042" },
-  { name: "Cina", code: "100000219" },
-  { name: "Giappone", code: "100000223" },
-  { name: "Canada", code: "100000202" },
-  { name: "Australia", code: "100000501" },
-  { name: "Brasile", code: "100000302" },
-  { name: "Argentina", code: "100000301" },
-  { name: "Albania", code: "100000001" },
-];
 interface Customer {
   id: number;
   tenantId: string;
@@ -77,6 +59,8 @@ interface Customer {
   sesso: string;
   dataNascita: string;
   luogoNascita: string;
+  provinciaNascita?: string;
+  statoNascita?: string;
   cittadinanza: string;
   tipoDocumento: string;
   numeroDocumento: string;
@@ -146,6 +130,164 @@ interface ExemptionCategory {
   nome: string;
   isDefault: boolean;
 }
+const SubscriptionExpiredOverlay: React.FC<{ onLogout: () => void }> = ({
+  onLogout,
+}) => {
+          const plans = [
+            {
+              key: "STARTER",
+              label: "Starter",
+              monthly: 14,
+              yearly: 134,
+              props: 5,
+              desc: "fino a 5 strutture",
+            },
+            {
+              key: "PRO",
+              label: "Pro",
+              monthly: 25,
+              yearly: 240,
+              props: 999,
+              desc: "strutture illimitate",
+              popular: true,
+            },
+          ];
+          const [selectedPlan, setSelectedPlan] = React.useState("PRO");
+          const [interval, setInterval] = React.useState<"month" | "year">(
+            "month",
+          );
+          const [checkoutLoading, setCheckoutLoading] = React.useState(false);
+          const handleSubscribe = async () => {
+            setCheckoutLoading(true);
+            try {
+              const res = await apiFetch("/api/billing/checkout", {
+                method: "POST",
+                body: JSON.stringify({ plan: selectedPlan, interval }),
+              });
+              if (!res.ok) throw new Error("Errore");
+              const data = await res.json();
+              window.location.href = data.url;
+            } catch (_) {
+              setCheckoutLoading(false);
+            }
+          };
+          return (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
+              {" "}
+              <div className="gradient-border-wrapper w-full max-w-lg animate-fade-in my-4">
+                {" "}
+                <div className="glass-panel px-6 py-8 bg-white/97">
+                  {" "}
+                  <div className="text-center mb-6">
+                    {" "}
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-primary-500 to-accent-500 p-[1.5px] shadow-lg mx-auto mb-4">
+                      {" "}
+                      <div className="w-full h-full bg-white rounded-[20px] flex items-center justify-center">
+                        {" "}
+                        <Hotel className="w-7 h-7 text-accent-500" />{" "}
+                      </div>{" "}
+                    </div>{" "}
+                    <h2 className="text-xl font-extrabold text-slate-900">
+                      Attiva il tuo piano
+                    </h2>{" "}
+                    <p className="text-sm text-slate-500 mt-1">
+                      Il periodo di prova gratuita è terminato. Scegli il piano
+                      più adatto alla tua struttura.
+                    </p>{" "}
+                  </div>{" "}
+                  {/* Interval toggle */}{" "}
+                  <div className="flex items-center justify-center gap-2 mb-5">
+                    {" "}
+                    <button
+                      onClick={() => setInterval("month")}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${interval === "month" ? "bg-accent-500 text-white" : "text-slate-500 hover:text-slate-700"}`}
+                    >
+                      {" "}
+                      Mensile{" "}
+                    </button>{" "}
+                    <button
+                      onClick={() => setInterval("year")}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${interval === "year" ? "bg-accent-500 text-white" : "text-slate-500 hover:text-slate-700"}`}
+                    >
+                      {" "}
+                      Annuale{" "}
+                      <span className="text-[9px] bg-emerald-500 text-white px-1.5 py-0.5 rounded-full font-extrabold">
+                        -20%
+                      </span>{" "}
+                    </button>{" "}
+                  </div>{" "}
+                  {/* Plans */}{" "}
+                  <div className="grid grid-cols-2 gap-3 mb-5">
+                    {" "}
+                    {plans.map((p) => (
+                      <button
+                        key={p.key}
+                        onClick={() => setSelectedPlan(p.key)}
+                        className={`relative p-4 rounded-2xl border-2 text-left transition-all cursor-pointer ${selectedPlan === p.key ? "border-accent-500 bg-accent-500/5" : "border-slate-200 hover:border-slate-300"}`}
+                      >
+                        {" "}
+                        {p.popular && (
+                          <span className="absolute -top-2 left-1/2 -translate-x-1/2 text-[9px] bg-accent-500 text-white px-2 py-0.5 rounded-full font-bold whitespace-nowrap">
+                            Più scelto
+                          </span>
+                        )}{" "}
+                        <p className="text-xs font-bold text-slate-800">
+                          {p.label}
+                        </p>{" "}
+                        <p className="text-lg font-extrabold text-slate-900 mt-1">
+                          {" "}
+                          €
+                          {interval === "month"
+                            ? p.monthly
+                            : Math.round(p.yearly / 12)}{" "}
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            /mese
+                          </span>{" "}
+                        </p>{" "}
+                        {interval === "year" && (
+                          <p className="text-[9px] text-emerald-600 font-bold">
+                            €{p.yearly}/anno
+                          </p>
+                        )}{" "}
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          {p.desc}
+                        </p>{" "}
+                      </button>
+                    ))}{" "}
+                  </div>{" "}
+                  <button
+                    onClick={handleSubscribe}
+                    disabled={checkoutLoading}
+                    className="btn-glow-primary w-full py-3.5 rounded-xl text-white font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer active:scale-95 transition-all mb-3"
+                  >
+                    {" "}
+                    {checkoutLoading
+                      ? "Reindirizzamento..."
+                      : "ðŸ”’ Procedi al pagamento sicuro"}{" "}
+                  </button>{" "}
+                  <div className="flex items-center justify-between">
+                    {" "}
+                    <button
+                      onClick={onLogout}
+                      className="text-xs text-slate-400 hover:text-slate-600 font-semibold cursor-pointer"
+                    >
+                      {" "}
+                      Esci dall'account{" "}
+                    </button>{" "}
+                    <a
+                      href="mailto:support@glancepms.it"
+                      className="text-xs text-accent-600 font-semibold hover:underline"
+                    >
+                      {" "}
+                      Serve aiuto?{" "}
+                    </a>{" "}
+                  </div>{" "}
+                </div>{" "}
+              </div>{" "}
+            </div>
+          );
+};
+
 export const App: React.FC = () => {
   const pathname = window.location.pathname;
   const publicCheckinMatch = pathname.match(
@@ -177,15 +319,36 @@ export const App: React.FC = () => {
   const [newCustomerCognome, setNewCustomerCognome] = useState("");
   const [newCustomerSesso, setNewCustomerSesso] = useState("M");
   const [newCustomerBirth, setNewCustomerBirth] = useState("");
-  const [newCustomerBirthPlace, setNewCustomerBirthPlace] = useState("");
+  const [newCustomerBirthGeo, setNewCustomerBirthGeo] = useState<BirthGeo>(EMPTY_BIRTH);
   const [newCustomerCitizen, setNewCustomerCitizen] = useState("100000100");
   /* Default Italy */ const [newCustomerDocType, setNewCustomerDocType] =
-    useState("CARTA_IDENTITA");
+    useState("IDENT");
   const [newCustomerDocNum, setNewCustomerDocNum] = useState("");
   const [newCustomerDocPlace, setNewCustomerDocPlace] = useState("");
   /* Accompanying search & list states */ const [accSearch, setAccSearch] =
     useState("");
   const [accResults, setAccResults] = useState<Customer[]>([]);
+  /* Keyboard-highlighted row of the customer / accompanying search dropdowns */ const [custActive, setCustActive] =
+    useState(0);
+  const [accActive, setAccActive] = useState(0);
+  const custListRef = React.useRef<HTMLDivElement>(null);
+  const accListRef = React.useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    setCustActive(0);
+  }, [customerResults]);
+  useEffect(() => {
+    setAccActive(0);
+  }, [accResults]);
+  useEffect(() => {
+    (
+      custListRef.current?.children[custActive] as HTMLElement | undefined
+    )?.scrollIntoView({ block: "nearest" });
+  }, [custActive, customerResults]);
+  useEffect(() => {
+    (
+      accListRef.current?.children[accActive] as HTMLElement | undefined
+    )?.scrollIntoView({ block: "nearest" });
+  }, [accActive, accResults]);
   /* Scanner modal state */ const [showResScanner, setShowResScanner] =
     useState(false);
   /* Accompanying Quick Create states */ const [
@@ -196,7 +359,7 @@ export const App: React.FC = () => {
   const [newAccCognome, setNewAccCognome] = useState("");
   const [newAccSesso, setNewAccSesso] = useState("M");
   const [newAccBirth, setNewAccBirth] = useState("");
-  const [newAccBirthPlace, setNewAccBirthPlace] = useState("");
+  const [newAccBirthGeo, setNewAccBirthGeo] = useState<BirthGeo>(EMPTY_BIRTH);
   const [newAccCitizen, setNewAccCitizen] = useState("100000100");
   const [scannerTargetType, setScannerTargetType] = useState<
     "primary" | "accompanying"
@@ -339,6 +502,9 @@ export const App: React.FC = () => {
   const [newIcalUrl, setNewIcalUrl] = useState("");
   /* Compliance Form fields */ const [complianceDate, setComplianceDate] =
     useState(new Date().toISOString().split("T")[0]);
+  const [complianceDateTo, setComplianceDateTo] = useState(
+    new Date().toISOString().split("T")[0],
+  );
   /* Tourist Tax modal & reservation-section state */ const [
     showTouristTaxSettingsModal,
     setShowTouristTaxSettingsModal,
@@ -359,10 +525,14 @@ export const App: React.FC = () => {
   ] = useState<ReservationCharge[]>([]);
   const [newChargeDesc, setNewChargeDesc] = useState("");
   const [newChargeAmount, setNewChargeAmount] = useState("");
-  /* Language the PDF receipt is generated in â€” chosen by the host at download time, since (unlike */ /* check-in) there's no guest-driven moment here to infer it from. */ const [
+  /* Language the PDF receipt is generated in — chosen by the host at download time, since (unlike */ /* check-in) there's no guest-driven moment here to infer it from. */ const [
     receiptLang,
     setReceiptLang,
   ] = useState<"it" | "en" | "es" | "de" | "fr">("it");
+  const [receiptRecipient, setReceiptRecipient] = useState("");
+  const [receiptEmail, setReceiptEmail] = useState("");
+  const [receiptSending, setReceiptSending] = useState(false);
+  const [showResMoreMenu, setShowResMoreMenu] = useState(false);
   useEffect(() => {
     const info = getUserInfo();
     if (info) {
@@ -565,10 +735,10 @@ export const App: React.FC = () => {
   const handleDeleteRoom = async (roomId: number) => {
     const confirmed = await Swal.fire({
       title: "Elimina Camera",
-      text: "Sei sicuro di voler eliminare questa camera? VerrÃ  eliminata ogni prenotazione associata.",
+      text: "Sei sicuro di voler eliminare questa camera? Verrà eliminata ogni prenotazione associata.",
       icon: "warning",
       showCancelButton: true,
-      confirmButtonText: "SÃ¬, elimina",
+      confirmButtonText: "Sì, elimina",
       cancelButtonText: "Annulla",
       background: "rgba(255, 255, 255, 0.9)",
       backdrop: "rgba(15, 23, 42, 0.3)",
@@ -609,7 +779,7 @@ export const App: React.FC = () => {
       });
       if (!res.ok) {
         if (res.status === 409) {
-          throw new Error("Questa tipologia esiste giÃ !");
+          throw new Error("Questa tipologia esiste già!");
         }
         throw new Error("Errore nella creazione della tipologia");
       }
@@ -626,7 +796,7 @@ export const App: React.FC = () => {
       text: "Sei sicuro di voler eliminare questa tipologia di camera? Assicurati che non ci siano camere associate ad essa.",
       icon: "warning",
       showCancelButton: true,
-      confirmButtonText: "SÃ¬, elimina",
+      confirmButtonText: "Sì, elimina",
       cancelButtonText: "Annulla",
       background: "rgba(255, 255, 255, 0.9)",
       backdrop: "rgba(15, 23, 42, 0.3)",
@@ -668,7 +838,7 @@ export const App: React.FC = () => {
           prezzoNotte: newPrice === "" ? null : parseFloat(newPrice),
         }),
       });
-      if (res.status === 409) throw new Error("Questa tipologia esiste giÃ !");
+      if (res.status === 409) throw new Error("Questa tipologia esiste già!");
       if (!res.ok) throw new Error("Errore nella modifica della tipologia");
       setEditingRoomTypeId(null);
       setEditingRoomTypeName("");
@@ -746,7 +916,7 @@ export const App: React.FC = () => {
       if (res.status === 409) {
         const data = await res.json().catch(() => null);
         throw new Error(
-          data?.message || "Questo periodo si sovrappone a uno giÃ  impostato",
+          data?.message || "Questo periodo si sovrappone a uno già impostato",
         );
       }
       if (!res.ok)
@@ -780,13 +950,13 @@ export const App: React.FC = () => {
       month: "short",
       year: "numeric",
     });
-    return `${startStr} â†’ ${endStr}`;
+    return `${startStr} → ${endStr}`;
   };
-  /* Recurring rules repeat every year, so the year they happen to be stored with is meaningless â€” never show it. */ const formatRecurringRange =
+  /* Recurring rules repeat every year, so the year they happen to be stored with is meaningless — never show it. */ const formatRecurringRange =
     (start: string, end: string) => {
       const s = new Date(start);
       const e = new Date(end);
-      return `${s.toLocaleDateString("it-IT", { day: "numeric", month: "short" })} â†’ ${e.toLocaleDateString("it-IT", { day: "numeric", month: "short" })}`;
+      return `${s.toLocaleDateString("it-IT", { day: "numeric", month: "short" })} → ${e.toLocaleDateString("it-IT", { day: "numeric", month: "short" })}`;
     };
   const rateMatchesSearch = (rate: RoomTypeRate, query: string) => {
     if (!query) return true;
@@ -799,10 +969,10 @@ export const App: React.FC = () => {
     if (!ratesForRoomType) return;
     const confirmed = await Swal.fire({
       title: "Eliminare il periodo?",
-      text: `La tariffa base tornerÃ  ad applicarsi a queste date.${extraWarning || ""}`,
+      text: `La tariffa base tornerà ad applicarsi a queste date.${extraWarning || ""}`,
       icon: "warning",
       showCancelButton: true,
-      confirmButtonText: "SÃ¬, elimina",
+      confirmButtonText: "Sì, elimina",
       cancelButtonText: "Annulla",
       background: "rgba(255, 255, 255, 0.9)",
       customClass: {
@@ -892,9 +1062,9 @@ export const App: React.FC = () => {
     setNewCustomerCognome("");
     setNewCustomerSesso("M");
     setNewCustomerBirth("");
-    setNewCustomerBirthPlace("");
+    setNewCustomerBirthGeo(EMPTY_BIRTH);
     setNewCustomerCitizen("100000100");
-    setNewCustomerDocType("CARTA_IDENTITA");
+    setNewCustomerDocType("IDENT");
     setNewCustomerDocNum("");
     setNewCustomerDocPlace("");
     setTouristTaxResult(null);
@@ -921,11 +1091,28 @@ export const App: React.FC = () => {
     setAccompanyingGuests([]);
     setAccSearch("");
     setAccResults([]);
+    setReceiptRecipient("");
+    setReceiptEmail("");
+    setShowResMoreMenu(false);
   };
   /* Submit handler handles both Create (POST) and Edit (PUT) */ const handleSaveReservation =
     async (e: React.FormEvent) => {
       e.preventDefault();
       setAppError("");
+      /* The required stay fields live in the "Soggiorno" section, which is not mounted while another section is open, so the browser's own validation never sees them: check here and take the user back to the section. */ if (
+        !newResRoomId ||
+        !newResCheckIn ||
+        !newResCheckOut
+      ) {
+        setActiveResTab("soggiorno");
+        Swal.fire({
+          icon: "warning",
+          title: "Dati mancanti",
+          text: "Per salvare la prenotazione scegli la camera e indica le date di check-in e check-out.",
+          background: "rgba(255,255,255,0.95)",
+        });
+        return;
+      }
       try {
         let currentCustomer = selectedCustomer;
         /* 1. If receptionist filled the "Create/Edit Customer" form, persist it first */ if (
@@ -941,7 +1128,7 @@ export const App: React.FC = () => {
             cognome: newCustomerCognome,
             sesso: newCustomerSesso,
             dataNascita: newCustomerBirth,
-            luogoNascita: newCustomerBirthPlace,
+            ...birthGeoToPayload(newCustomerBirthGeo),
             cittadinanza: newCustomerCitizen,
             tipoDocumento: newCustomerDocType,
             numeroDocumento: newCustomerDocNum,
@@ -990,8 +1177,13 @@ export const App: React.FC = () => {
           body: JSON.stringify(payload),
         });
         if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.message || "Errore durante il salvataggio");
+          /* Error responses can have an empty body (e.g. a bare 400/409): do not let res.json() throw its own, unreadable error */ const data = await res
+            .json()
+            .catch(() => ({}) as { message?: string });
+          throw new Error(
+            data.message ||
+              `Errore durante il salvataggio (codice ${res.status})`,
+          );
         }
         closeReservationModal();
         fetchData();
@@ -1057,7 +1249,7 @@ export const App: React.FC = () => {
         cognome: newAccCognome,
         sesso: newAccSesso,
         dataNascita: newAccBirth,
-        luogoNascita: newAccBirthPlace,
+        ...birthGeoToPayload(newAccBirthGeo),
         cittadinanza: newAccCitizen,
       };
       const res = await apiFetch("/api/v1/customers", {
@@ -1073,7 +1265,7 @@ export const App: React.FC = () => {
       setNewAccCognome("");
       setNewAccSesso("M");
       setNewAccBirth("");
-      setNewAccBirthPlace("");
+      setNewAccBirthGeo(EMPTY_BIRTH);
       setNewAccCitizen("100000100");
       setShowCreateAccompanying(false);
       Swal.fire({
@@ -1110,7 +1302,7 @@ export const App: React.FC = () => {
         cognome: newCustomerCognome,
         sesso: newCustomerSesso,
         dataNascita: newCustomerBirth,
-        luogoNascita: newCustomerBirthPlace,
+        ...birthGeoToPayload(newCustomerBirthGeo),
         cittadinanza: newCustomerCitizen,
         tipoDocumento: newCustomerDocType,
         numeroDocumento: newCustomerDocNum,
@@ -1157,7 +1349,7 @@ export const App: React.FC = () => {
       text: "Sei sicuro di voler eliminare definitivamente questa prenotazione?",
       icon: "warning",
       showCancelButton: true,
-      confirmButtonText: "SÃ¬, elimina",
+      confirmButtonText: "Sì, elimina",
       cancelButtonText: "Annulla",
       background: "rgba(255, 255, 255, 0.9)",
       backdrop: "rgba(15, 23, 42, 0.3)",
@@ -1217,16 +1409,41 @@ export const App: React.FC = () => {
   const triggerAlloggiatiWebExport = async () => {
     try {
       const res = await apiFetch(
-        `/api/v1/reports/alloggiati?date=${complianceDate}`,
+        `/api/v1/reports/alloggiati?from=${complianceDate}&to=${complianceDateTo}`,
       );
-      if (!res.ok)
-        throw new Error("Errore nella generazione del report alloggiati");
+      if (res.status === 422) {
+        const detail = await res.text();
+        const lines = detail.split(/\r?\n/);
+        const escapeHtml = (v: string) =>
+          v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        Swal.fire({
+          icon: "warning",
+          title: "Dati da completare",
+          html:
+            '<div style="text-align:left;max-height:320px;overflow:auto;font-size:13px">' +
+            `<p style="margin-bottom:8px">${escapeHtml(lines[0])}</p><ul style="padding-left:18px;list-style:disc">` +
+            lines
+              .slice(1)
+              .filter((l) => l.trim())
+              .map((l) => `<li style="margin-bottom:4px">${escapeHtml(l)}</li>`)
+              .join("") +
+            "</ul></div>",
+          background: "rgba(255,255,255,0.95)",
+        });
+        return;
+      }
+      if (!res.ok) {
+        const detail = (await res.text()).trim();
+        throw new Error(
+          detail || "Errore nella generazione del report alloggiati",
+        );
+      }
       const blob = await res.blob();
       if (blob.size === 0) {
         Swal.fire({
           icon: "info",
           title: "Nessun dato",
-          text: "Non ci sono dati da inserire nel file per la data selezionata.",
+          text: "Nessuna prenotazione non annullata con check-in nel periodo selezionato.",
           background: "rgba(255,255,255,0.95)",
         });
         return;
@@ -1234,7 +1451,10 @@ export const App: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `alloggiati_${complianceDate}.txt`;
+      a.download =
+        complianceDate === complianceDateTo
+          ? `alloggiati_${complianceDate}.txt`
+          : `alloggiati_${complianceDate}_${complianceDateTo}.txt`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -1361,7 +1581,7 @@ export const App: React.FC = () => {
     if (!selectedReservationForEdit) return;
     try {
       const res = await apiFetch(
-        `/api/reservations/${selectedReservationForEdit.id}/receipt?lang=${receiptLang}`,
+        `/api/reservations/${selectedReservationForEdit.id}/receipt?lang=${receiptLang}${receiptRecipient.trim() ? `&intestatario=${encodeURIComponent(receiptRecipient.trim())}` : ""}`,
       );
       if (!res.ok) throw new Error("Impossibile generare la ricevuta");
       const blob = await res.blob();
@@ -1382,6 +1602,86 @@ export const App: React.FC = () => {
       });
     }
   };
+  const pickCustomer = (cust: Customer) => {
+    setSelectedCustomer(cust);
+    setCustomerSearch(`${cust.cognome} ${cust.nome}`);
+    setCustomerResults([]);
+  };
+  const pickAccompanying = (cust: Customer) => {
+    if (!accompanyingGuests.some((ag) => ag.id === cust.id)) {
+      setAccompanyingGuests([...accompanyingGuests, cust]);
+    }
+    setAccSearch("");
+    setAccResults([]);
+  };
+  /* Arrow keys move the highlight, Enter picks it (and must not submit the surrounding form) */ const dropdownKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    results: Customer[],
+    active: number,
+    setActive: (i: number) => void,
+    pick: (c: Customer) => void,
+    close: () => void,
+  ) => {
+    if (results.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActive((active + 1) % results.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive((active - 1 + results.length) % results.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      pick(results[Math.min(active, results.length - 1)]);
+    } else if (e.key === "Escape") {
+      close();
+    }
+  };
+  const handleEmailReceipt = async () => {
+    if (!selectedReservationForEdit) return;
+    const to = receiptEmail.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
+      Swal.fire({
+        icon: "warning",
+        title: "Indirizzo email non valido",
+        text: "Inserisci l'email a cui inviare la ricevuta.",
+        background: "rgba(255,255,255,0.95)",
+      });
+      return;
+    }
+    setReceiptSending(true);
+    try {
+      const res = await apiFetch(
+        `/api/reservations/${selectedReservationForEdit.id}/receipt/email`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            to,
+            lang: receiptLang,
+            intestatario: receiptRecipient.trim() || null,
+          }),
+        },
+      );
+      if (!res.ok) throw new Error("Impossibile inviare la ricevuta");
+      Swal.fire({
+        toast: true,
+        position: "top-end",
+        icon: "success",
+        title: "Ricevuta inviata",
+        showConfirmButton: false,
+        timer: 2000,
+        background: "rgba(255, 255, 255, 0.95)",
+      });
+    } catch (err: any) {
+      Swal.fire({
+        icon: "error",
+        title: "Errore",
+        text: err.message,
+        background: "rgba(255,255,255,0.95)",
+      });
+    } finally {
+      setReceiptSending(false);
+    }
+  };
   const handleDeleteCharge = async (chargeId: number) => {
     if (!selectedReservationForEdit) return;
     try {
@@ -1400,7 +1700,7 @@ export const App: React.FC = () => {
       });
     }
   };
-  /* Suggests the nightly price for a new reservation once room + dates are set, using the room */ /* type's seasonal rate calendar (night-by-night, so a stay crossing a season boundary gets a */ /* correct blended average instead of a single flat rate). Never overwrites a price the user has */ /* already set â€” either by hand or from a previous suggestion â€” so editing dates after typing a */ /* custom price won't silently change it. */ /* Reset the auto-suggested price whenever the room changes in create mode, */ /* so the effect below can fetch the correct rate for the new room. */ const prevRoomIdRef =
+  /* Suggests the nightly price for a new reservation once room + dates are set, using the room */ /* type's seasonal rate calendar (night-by-night, so a stay crossing a season boundary gets a */ /* correct blended average instead of a single flat rate). Never overwrites a price the user has */ /* already set — either by hand or from a previous suggestion — so editing dates after typing a */ /* custom price won't silently change it. */ /* Reset the auto-suggested price whenever the room changes in create mode, */ /* so the effect below can fetch the correct rate for the new room. */ const prevRoomIdRef =
     React.useRef<string>("");
   useEffect(() => {
     if (
@@ -2031,11 +2331,11 @@ export const App: React.FC = () => {
                               );
                               return rt?.prezzoNotte != null ? (
                                 <span className="text-xs font-semibold text-slate-700">
-                                  â‚¬ {rt.prezzoNotte.toFixed(2)}
+                                  € {rt.prezzoNotte.toFixed(2)}
                                 </span>
                               ) : (
                                 <span className="text-[10px] text-slate-400">
-                                  â€”
+                                  —
                                 </span>
                               );
                             })()}{" "}
@@ -2090,161 +2390,7 @@ export const App: React.FC = () => {
       </main>{" "}
       {/* Overlay: Abbonamento scaduto */}{" "}
       {(subscriptionExpired || user.subscriptionStatus === "EXPIRED") &&
-        (() => {
-          const plans = [
-            {
-              key: "STARTER",
-              label: "Starter",
-              monthly: 14,
-              yearly: 134,
-              props: 5,
-              desc: "fino a 5 strutture",
-            },
-            {
-              key: "PRO",
-              label: "Pro",
-              monthly: 25,
-              yearly: 240,
-              props: 999,
-              desc: "strutture illimitate",
-              popular: true,
-            },
-          ];
-          const [selectedPlan, setSelectedPlan] = React.useState("PRO");
-          const [interval, setInterval] = React.useState<"month" | "year">(
-            "month",
-          );
-          const [checkoutLoading, setCheckoutLoading] = React.useState(false);
-          const handleSubscribe = async () => {
-            setCheckoutLoading(true);
-            try {
-              const res = await apiFetch("/api/billing/checkout", {
-                method: "POST",
-                body: JSON.stringify({ plan: selectedPlan, interval }),
-              });
-              if (!res.ok) throw new Error("Errore");
-              const data = await res.json();
-              window.location.href = data.url;
-            } catch (_) {
-              setCheckoutLoading(false);
-            }
-          };
-          return (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
-              {" "}
-              <div className="gradient-border-wrapper w-full max-w-lg animate-fade-in my-4">
-                {" "}
-                <div className="glass-panel px-6 py-8 bg-white/97">
-                  {" "}
-                  <div className="text-center mb-6">
-                    {" "}
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-primary-500 to-accent-500 p-[1.5px] shadow-lg mx-auto mb-4">
-                      {" "}
-                      <div className="w-full h-full bg-white rounded-[20px] flex items-center justify-center">
-                        {" "}
-                        <Hotel className="w-7 h-7 text-accent-500" />{" "}
-                      </div>{" "}
-                    </div>{" "}
-                    <h2 className="text-xl font-extrabold text-slate-900">
-                      Attiva il tuo piano
-                    </h2>{" "}
-                    <p className="text-sm text-slate-500 mt-1">
-                      Il periodo di prova gratuita Ã¨ terminato. Scegli il piano
-                      piÃ¹ adatto alla tua struttura.
-                    </p>{" "}
-                  </div>{" "}
-                  {/* Interval toggle */}{" "}
-                  <div className="flex items-center justify-center gap-2 mb-5">
-                    {" "}
-                    <button
-                      onClick={() => setInterval("month")}
-                      className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${interval === "month" ? "bg-accent-500 text-white" : "text-slate-500 hover:text-slate-700"}`}
-                    >
-                      {" "}
-                      Mensile{" "}
-                    </button>{" "}
-                    <button
-                      onClick={() => setInterval("year")}
-                      className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${interval === "year" ? "bg-accent-500 text-white" : "text-slate-500 hover:text-slate-700"}`}
-                    >
-                      {" "}
-                      Annuale{" "}
-                      <span className="text-[9px] bg-emerald-500 text-white px-1.5 py-0.5 rounded-full font-extrabold">
-                        -20%
-                      </span>{" "}
-                    </button>{" "}
-                  </div>{" "}
-                  {/* Plans */}{" "}
-                  <div className="grid grid-cols-2 gap-3 mb-5">
-                    {" "}
-                    {plans.map((p) => (
-                      <button
-                        key={p.key}
-                        onClick={() => setSelectedPlan(p.key)}
-                        className={`relative p-4 rounded-2xl border-2 text-left transition-all cursor-pointer ${selectedPlan === p.key ? "border-accent-500 bg-accent-500/5" : "border-slate-200 hover:border-slate-300"}`}
-                      >
-                        {" "}
-                        {p.popular && (
-                          <span className="absolute -top-2 left-1/2 -translate-x-1/2 text-[9px] bg-accent-500 text-white px-2 py-0.5 rounded-full font-bold whitespace-nowrap">
-                            PiÃ¹ scelto
-                          </span>
-                        )}{" "}
-                        <p className="text-xs font-bold text-slate-800">
-                          {p.label}
-                        </p>{" "}
-                        <p className="text-lg font-extrabold text-slate-900 mt-1">
-                          {" "}
-                          â‚¬
-                          {interval === "month"
-                            ? p.monthly
-                            : Math.round(p.yearly / 12)}{" "}
-                          <span className="text-[10px] text-slate-400 font-medium">
-                            /mese
-                          </span>{" "}
-                        </p>{" "}
-                        {interval === "year" && (
-                          <p className="text-[9px] text-emerald-600 font-bold">
-                            â‚¬{p.yearly}/anno
-                          </p>
-                        )}{" "}
-                        <p className="text-[10px] text-slate-400 mt-1">
-                          {p.desc}
-                        </p>{" "}
-                      </button>
-                    ))}{" "}
-                  </div>{" "}
-                  <button
-                    onClick={handleSubscribe}
-                    disabled={checkoutLoading}
-                    className="btn-glow-primary w-full py-3.5 rounded-xl text-white font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer active:scale-95 transition-all mb-3"
-                  >
-                    {" "}
-                    {checkoutLoading
-                      ? "Reindirizzamento..."
-                      : "ðŸ”’ Procedi al pagamento sicuro"}{" "}
-                  </button>{" "}
-                  <div className="flex items-center justify-between">
-                    {" "}
-                    <button
-                      onClick={handleLogout}
-                      className="text-xs text-slate-400 hover:text-slate-600 font-semibold cursor-pointer"
-                    >
-                      {" "}
-                      Esci dall'account{" "}
-                    </button>{" "}
-                    <a
-                      href="mailto:support@glancepms.it"
-                      className="text-xs text-accent-600 font-semibold hover:underline"
-                    >
-                      {" "}
-                      Serve aiuto?{" "}
-                    </a>{" "}
-                  </div>{" "}
-                </div>{" "}
-              </div>{" "}
-            </div>
-          );
-        })()}{" "}
+        <SubscriptionExpiredOverlay onLogout={handleLogout} />}{" "}
       {/* Modal: Profilo (cambio password) */}{" "}
       {showProfileModal && (
         <div
@@ -2354,7 +2500,7 @@ export const App: React.FC = () => {
                 {" "}
                 <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                   {" "}
-                  <Users className="w-4 h-4 text-accent-500" /> Team â€”{" "}
+                  <Users className="w-4 h-4 text-accent-500" /> Team —{" "}
                   {user.tenantName}{" "}
                 </h3>{" "}
                 <button
@@ -2632,7 +2778,7 @@ export const App: React.FC = () => {
                 <div>
                   {" "}
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    CapacitÃ  Ospiti
+                    Capacità Ospiti
                   </label>{" "}
                   <input
                     type="number"
@@ -2710,7 +2856,7 @@ export const App: React.FC = () => {
                   value={newRoomTypePrice}
                   onChange={(e) => setNewRoomTypePrice(e.target.value)}
                   className="glass-input w-24 px-3 py-2.5 rounded-xl text-slate-900 text-sm focus:outline-none"
-                  placeholder="â‚¬/notte"
+                  placeholder="€/notte"
                 />{" "}
                 <button
                   type="submit"
@@ -2740,8 +2886,8 @@ export const App: React.FC = () => {
                       <span className="text-xs font-semibold text-slate-500">
                         {" "}
                         {rt.prezzoNotte != null
-                          ? `â‚¬ ${rt.prezzoNotte.toFixed(2)}/notte`
-                          : "â€”"}{" "}
+                          ? `€ ${rt.prezzoNotte.toFixed(2)}/notte`
+                          : "—"}{" "}
                       </span>{" "}
                       <button
                         type="button"
@@ -2845,7 +2991,7 @@ export const App: React.FC = () => {
                 <div>
                   {" "}
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Prezzo per notte (â‚¬)
+                    Prezzo per notte (€)
                   </label>{" "}
                   <input
                     type="number"
@@ -2854,7 +3000,7 @@ export const App: React.FC = () => {
                     value={editingRoomTypePrice}
                     onChange={(e) => setEditingRoomTypePrice(e.target.value)}
                     className="glass-input block w-full px-3.5 py-3 rounded-xl text-slate-900 text-sm focus:outline-none"
-                    placeholder="â‚¬/notte"
+                    placeholder="€/notte"
                   />{" "}
                 </div>{" "}
                 <button
@@ -2872,7 +3018,7 @@ export const App: React.FC = () => {
       {/* Modal: Tariffe Stagionali (per tipologia camera) */}{" "}
       {ratesForRoomType &&
         (() => {
-          /* "Old" = ended more than 3 months ago: tucked away in a collapsed archive so the list */ /* doesn't accumulate a decade of dead periods. "Concluded" = ended, but recently enough */ /* to still be relevant (e.g. a season that just ended) â€” stays in place, just labeled. */ const todayIso =
+          /* "Old" = ended more than 3 months ago: tucked away in a collapsed archive so the list */ /* doesn't accumulate a decade of dead periods. "Concluded" = ended, but recently enough */ /* to still be relevant (e.g. a season that just ended) — stays in place, just labeled. */ const todayIso =
             new Date().toISOString().slice(0, 10);
           const graceCutoffDate = new Date();
           graceCutoffDate.setMonth(graceCutoffDate.getMonth() - 3);
@@ -2995,7 +3141,7 @@ export const App: React.FC = () => {
                         <>
                           Base{" "}
                           <span className="font-bold text-slate-500">
-                            â‚¬ {ratesForRoomType.prezzoNotte.toFixed(2)}/notte
+                            € {ratesForRoomType.prezzoNotte.toFixed(2)}/notte
                           </span>
                           , valida fuori dai periodi qui sotto.
                         </>
@@ -3070,7 +3216,7 @@ export const App: React.FC = () => {
                         <div>
                           {" "}
                           <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                            â‚¬/notte
+                            €/notte
                           </label>{" "}
                           <input
                             type="number"
@@ -3110,7 +3256,7 @@ export const App: React.FC = () => {
                           {newRateRicorrente && (
                             <p className="text-[10px] text-slate-400 mt-1">
                               L'anno indicato non conta: la regola si
-                              applicherÃ  a queste date ogni anno, finchÃ© non
+                              applicherà a queste date ogni anno, finché non
                               la elimini.
                             </p>
                           )}{" "}
@@ -3206,7 +3352,7 @@ export const App: React.FC = () => {
                                         </span>{" "}
                                       </p>{" "}
                                       <p className="text-[11px] text-slate-500 font-semibold">
-                                        â‚¬ {rule.prezzoNotte.toFixed(2)}/notte
+                                        € {rule.prezzoNotte.toFixed(2)}/notte
                                       </p>{" "}
                                     </div>{" "}
                                     <button
@@ -3234,7 +3380,7 @@ export const App: React.FC = () => {
                                           rule.id,
                                           exceptions.length > 0
                                             ? exceptions.length === 1
-                                              ? ` VerrÃ  eliminata anche l'eccezione collegata.`
+                                              ? ` Verrà eliminata anche l'eccezione collegata.`
                                               : ` Verranno eliminate anche le ${exceptions.length} eccezioni collegate.`
                                             : undefined,
                                         )
@@ -3274,7 +3420,7 @@ export const App: React.FC = () => {
                                           )}{" "}
                                         </p>{" "}
                                         <p className="text-[10px] text-slate-500 font-semibold">
-                                          â‚¬ {exc.prezzoNotte.toFixed(2)}/notte
+                                          € {exc.prezzoNotte.toFixed(2)}/notte
                                         </p>{" "}
                                       </div>{" "}
                                       <button
@@ -3335,7 +3481,7 @@ export const App: React.FC = () => {
                                       )}{" "}
                                     </p>{" "}
                                     <p className="text-[11px] text-slate-500 font-semibold">
-                                      â‚¬ {rate.prezzoNotte.toFixed(2)}/notte
+                                      € {rate.prezzoNotte.toFixed(2)}/notte
                                     </p>{" "}
                                   </div>{" "}
                                   <button
@@ -3400,9 +3546,9 @@ export const App: React.FC = () => {
                                       </p>{" "}
                                       <p className="text-[11px] text-slate-400 font-semibold">
                                         {" "}
-                                        â‚¬ {rate.prezzoNotte.toFixed(2)}/notte
+                                        € {rate.prezzoNotte.toFixed(2)}/notte
                                         {parentLabel && (
-                                          <> Â· Eccezione di {parentLabel}</>
+                                          <> · Eccezione di {parentLabel}</>
                                         )}{" "}
                                       </p>{" "}
                                     </div>{" "}
@@ -3443,186 +3589,224 @@ export const App: React.FC = () => {
         (() => {
           const isExternalIcal =
             selectedReservationForEdit?.source === "EXTERNAL_ICAL";
+          const fmtDay = (d: string) =>
+            d ? d.split("-").reverse().slice(0, 2).join("/") : "—";
+          const resNights =
+            newResCheckIn && newResCheckOut
+              ? Math.round(
+                  (new Date(newResCheckOut).getTime() -
+                    new Date(newResCheckIn).getTime()) /
+                    86400000,
+                )
+              : 0;
+          const resPrice = newResPrice ? parseFloat(newResPrice) : null;
+          const resSoggiorno =
+            resPrice !== null && resNights > 0 ? resNights * resPrice : null;
+          const resExtra = charges.reduce((sum, c) => sum + c.importo, 0);
+          const resTax = touristTaxResult ? touristTaxResult.totale : 0;
+          const resTotal = (resSoggiorno ?? 0) + resExtra + resTax;
+          const resGuestLabel = selectedCustomer
+            ? `${selectedCustomer.cognome} ${selectedCustomer.nome}`
+            : newResGuest || "Nuova prenotazione";
+          const resInitials =
+            selectedCustomer || newResGuest
+              ? resGuestLabel
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((w) => w[0]?.toUpperCase())
+                  .join("")
+              : "+";
+          const resRoomName = rooms.find(
+            (r) => String(r.id) === String(newResRoomId),
+          )?.name;
+          const statuses = [
+            { key: "CONFIRMED", label: "Confermata", color: "bg-emerald-500/10 text-emerald-700 border-emerald-500/30" },
+            { key: "READY_FOR_CHECKIN", label: "Pronta per il check-in", color: "bg-blue-500/10 text-blue-700 border-blue-500/30" },
+            { key: "CHECKED_IN", label: "Ospite in struttura", color: "bg-primary-500/10 text-primary-600 border-primary-500/30" },
+            { key: "CHECKED_OUT", label: "Check-out", color: "bg-slate-100 text-slate-600 border-slate-300" },
+            { key: "NO_SHOW", label: "No show", color: "bg-orange-500/10 text-orange-700 border-orange-500/30" },
+            { key: "CANCELLED", label: "Cancellata", color: "bg-red-500/10 text-red-600 border-red-500/30" },
+          ];
+          const currentStatus = selectedReservationForEdit?.status;
+          const currentStatusDef = statuses.find((st) => st.key === currentStatus);
+          const changeStatus = async (key: string) => {
+            if (!selectedReservationForEdit || key === currentStatus) return;
+            if (key === "CHECKED_OUT") {
+              const taxText = touristTaxResult
+                ? `Tassa di soggiorno da riscuotere: <b>€ ${touristTaxResult.totale.toFixed(2)}</b>`
+                : touristTaxError
+                  ? `Tassa di soggiorno: ${touristTaxError}`
+                  : "Importo tassa di soggiorno non disponibile.";
+              const confirmed = await Swal.fire({
+                icon: "question",
+                title: "Confermi il Check-out?",
+                html: taxText,
+                showCancelButton: true,
+                confirmButtonText: "Conferma Check-out",
+                cancelButtonText: "Annulla",
+                customClass: {
+                  confirmButton:
+                    "btn-glow-primary px-4 py-2 rounded-xl text-white text-xs font-bold mx-1",
+                  cancelButton:
+                    "px-4 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold mx-1",
+                },
+                buttonsStyling: false,
+                background: "rgba(255,255,255,0.95)",
+              });
+              if (!confirmed.isConfirmed) return;
+            }
+            try {
+              const res = await apiFetch(
+                `/api/reservations/${selectedReservationForEdit.id}/status`,
+                { method: "PUT", body: JSON.stringify({ status: key }) },
+              );
+              if (res.ok) {
+                setSelectedReservationForEdit({
+                  ...selectedReservationForEdit,
+                  status: key,
+                });
+                fetchData();
+              }
+            } catch (_) {}
+          };
+          const navTabs = [
+            { id: "soggiorno" as const, label: "Soggiorno", icon: CalendarRange, badge: 0 },
+            { id: "cliente" as const, label: "Cliente", icon: User, badge: 0 },
+            { id: "accompagnatori" as const, label: "Accompagnatori", icon: Users, badge: accompanyingGuests.length },
+            { id: "tassa" as const, label: "Tassa ed extra", icon: Coins, badge: 0 },
+            ...(selectedReservationForEdit
+              ? [{ id: "ricevuta" as const, label: "Ricevuta", icon: Download, badge: 0 }]
+              : []),
+          ];
+          const activeTabLabel =
+            navTabs.find((t) => t.id === activeResTab)?.label ?? "";
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-sm">
-              {" "}
-              <div className="gradient-border-wrapper w-full max-w-2xl max-h-[92vh] flex flex-col">
-                {" "}
+              <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl h-[min(680px,92vh)] overflow-hidden">
                 <form
                   onSubmit={handleSaveReservation}
-                  className="glass-panel relative flex flex-col max-h-[92vh] overflow-hidden p-0 bg-white/95 flex-grow"
+                  className="flex flex-col md:flex-row h-full"
                 >
-                  {" "}
-                  {/* Fixed Header */}{" "}
-                  <div className="p-6 pb-4 border-b border-slate-200/50 shrink-0">
-                    {" "}
-                    <div className="flex justify-between items-center">
-                      {" "}
-                      <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                        {" "}
-                        <CalendarRange className="w-5 h-5 text-accent-500" />{" "}
-                        {selectedReservationForEdit
-                          ? "Modifica Prenotazione"
-                          : "Nuova Prenotazione"}{" "}
-                      </h3>{" "}
+                  {/* Sidebar: riepilogo + navigazione */}
+                  <aside className="md:w-64 shrink-0 bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 p-4 md:p-5 flex flex-col gap-3 md:gap-4 md:overflow-y-auto">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-accent-500/10 text-accent-600 flex items-center justify-center text-sm font-semibold shrink-0">
+                        {resInitials}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-slate-900 truncate">
+                          {resGuestLabel}
+                        </div>
+                        <div className="text-xs text-slate-500 truncate">
+                          {selectedReservationForEdit
+                            ? `Prenotazione #${selectedReservationForEdit.id}`
+                            : selectedCustomer || newResGuest
+                              ? "Nuova prenotazione"
+                              : "Ospite da collegare"}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-xs text-slate-500 flex flex-wrap gap-x-3 gap-y-1">
+                      <span>{resRoomName ? `Camera ${resRoomName}` : "Camera da scegliere"}</span>
+                      <span>
+                        {fmtDay(newResCheckIn)} → {fmtDay(newResCheckOut)}
+                        {resNights > 0 ? ` · ${resNights} ${resNights === 1 ? "notte" : "notti"}` : ""}
+                      </span>
+                    </div>
+                    {selectedReservationForEdit && currentStatusDef && (
+                      <div className="relative self-start">
+                        <select
+                          value={currentStatus}
+                          onChange={(e) => changeStatus(e.target.value)}
+                          title="Stato della prenotazione"
+                          className={`appearance-none cursor-pointer pl-3 pr-7 py-1.5 rounded-full text-xs font-semibold border focus:outline-none ${currentStatusDef.color}`}
+                        >
+                          {statuses.map((st) => (
+                            <option key={st.key} value={st.key}>
+                              {st.label}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="w-3.5 h-3.5 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-70" />
+                      </div>
+                    )}
+                    <nav className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      {navTabs.map((tab) => {
+                        const Icon = tab.icon;
+                        const isActive = activeResTab === tab.id;
+                        return (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setActiveResTab(tab.id)}
+                            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm whitespace-nowrap transition-colors cursor-pointer ${isActive ? "bg-accent-500/10 text-accent-600 font-semibold" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"}`}
+                          >
+                            <Icon className="w-4 h-4" />
+                            {tab.label}
+                            {tab.badge > 0 && (
+                              <span className="md:ml-auto text-[11px] leading-none px-1.5 py-1 rounded-full bg-white border border-slate-200 text-slate-500">
+                                {tab.badge}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </nav>
+                    <div className="hidden md:flex flex-col gap-1.5 mt-auto pt-4 border-t border-slate-200 text-sm">
+                      {resSoggiorno !== null ? (
+                        <div className="flex justify-between gap-2">
+                          <span className="text-slate-500">
+                            {resNights} {resNights === 1 ? "notte" : "notti"} × € {resPrice!.toFixed(2)}
+                          </span>
+                          <span>€ {resSoggiorno.toFixed(2)}</span>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-slate-400">Prezzo non impostato</div>
+                      )}
+                      {touristTaxResult && (
+                        <div className="flex justify-between gap-2">
+                          <span className="text-slate-500">Imposta di soggiorno</span>
+                          <span>€ {resTax.toFixed(2)}</span>
+                        </div>
+                      )}
+                      {resExtra > 0 && (
+                        <div className="flex justify-between gap-2">
+                          <span className="text-slate-500">Extra</span>
+                          <span>€ {resExtra.toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-baseline gap-2 pt-2 mt-0.5 border-t border-slate-200">
+                        <span className="font-semibold text-slate-900">Totale</span>
+                        <span className="text-lg font-semibold text-slate-900">€ {resTotal.toFixed(2)}</span>
+                      </div>
+                      {selectedReservationForEdit && (
+                        <button
+                          type="button"
+                          onClick={handleDownloadReceipt}
+                          className="mt-2 flex items-center justify-center gap-2 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-sm font-medium text-slate-800 transition-colors cursor-pointer"
+                        >
+                          <Receipt className="w-4 h-4" /> Genera ricevuta
+                        </button>
+                      )}
+                    </div>
+                  </aside>
+                  <div className="flex-1 flex flex-col min-w-0 min-h-0">
+                    <div className="flex items-center justify-between px-5 md:px-8 pt-5 md:pt-6 pb-2 shrink-0">
+                      <h3 className="text-xl font-semibold text-slate-900">
+                        {activeTabLabel}
+                      </h3>
                       <button
                         type="button"
                         onClick={closeReservationModal}
                         className="text-slate-400 hover:text-slate-900 transition-colors cursor-pointer"
+                        aria-label="Chiudi"
                       >
-                        {" "}
-                        <X className="w-5 h-5" />{" "}
-                      </button>{" "}
-                    </div>{" "}
-                    {/* Status bar â€” solo in modifica */}{" "}
-                    {selectedReservationForEdit &&
-                      (() => {
-                        const statuses = [
-                          {
-                            key: "CONFIRMED",
-                            label: "Confermata",
-                            color:
-                              "bg-emerald-500/10 text-emerald-700 border-emerald-500/30",
-                          },
-                          {
-                            key: "READY_FOR_CHECKIN",
-                            label: "Pronta Check-in",
-                            color:
-                              "bg-blue-500/10 text-blue-700 border-blue-500/30",
-                          },
-                          {
-                            key: "CHECKED_IN",
-                            label: "Ospite in struttura",
-                            color:
-                              "bg-primary-500/10 text-primary-600 border-primary-500/30",
-                          },
-                          {
-                            key: "CHECKED_OUT",
-                            label: "Check-out",
-                            color:
-                              "bg-slate-100 text-slate-600 border-slate-300",
-                          },
-                          {
-                            key: "NO_SHOW",
-                            label: "No Show",
-                            color:
-                              "bg-orange-500/10 text-orange-700 border-orange-500/30",
-                          },
-                          {
-                            key: "CANCELLED",
-                            label: "Cancellata",
-                            color:
-                              "bg-red-500/10 text-red-600 border-red-500/30",
-                          },
-                        ];
-                        const current = selectedReservationForEdit.status;
-                        return (
-                          <div className="mt-3 flex flex-wrap gap-1.5">
-                            {" "}
-                            {statuses.map((s) => (
-                              <button
-                                key={s.key}
-                                type="button"
-                                onClick={async () => {
-                                  if (s.key === current) return;
-                                  if (s.key === "CHECKED_OUT") {
-                                    const taxText = touristTaxResult
-                                      ? `Tassa di soggiorno da riscuotere: <b>â‚¬ ${touristTaxResult.totale.toFixed(2)}</b>`
-                                      : touristTaxError
-                                        ? `Tassa di soggiorno: ${touristTaxError}`
-                                        : "Importo tassa di soggiorno non disponibile.";
-                                    const confirmed = await Swal.fire({
-                                      icon: "question",
-                                      title: "Confermi il Check-out?",
-                                      html: taxText,
-                                      showCancelButton: true,
-                                      confirmButtonText: "Conferma Check-out",
-                                      cancelButtonText: "Annulla",
-                                      customClass: {
-                                        confirmButton:
-                                          "btn-glow-primary px-4 py-2 rounded-xl text-white text-xs font-bold mx-1",
-                                        cancelButton:
-                                          "px-4 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-bold mx-1",
-                                      },
-                                      buttonsStyling: false,
-                                      background: "rgba(255,255,255,0.95)",
-                                    });
-                                    if (!confirmed.isConfirmed) return;
-                                  }
-                                  try {
-                                    const res = await apiFetch(
-                                      `/api/reservations/${selectedReservationForEdit.id}/status`,
-                                      {
-                                        method: "PUT",
-                                        body: JSON.stringify({ status: s.key }),
-                                      },
-                                    );
-                                    if (res.ok) {
-                                      setSelectedReservationForEdit({
-                                        ...selectedReservationForEdit,
-                                        status: s.key,
-                                      });
-                                      fetchData();
-                                    }
-                                  } catch (_) {}
-                                }}
-                                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${s.key === current ? s.color + " scale-105 shadow-sm" : "bg-white text-slate-400 border-slate-200 hover:border-slate-300"}`}
-                              >
-                                {" "}
-                                {s.label}{" "}
-                              </button>
-                            ))}{" "}
-                          </div>
-                        );
-                      })()}{" "}
-                  </div>{" "}
-                  {/* Tab Navigation */}{" "}
-                  <div className="flex gap-1 px-6 pt-2 border-b border-slate-200/60 shrink-0 overflow-x-auto scrollbar-thin">
-                    {" "}
-                    {[
-                      {
-                        id: "soggiorno" as const,
-                        label: "Soggiorno",
-                        icon: CalendarRange,
-                      },
-                      { id: "cliente" as const, label: "Cliente", icon: User },
-                      {
-                        id: "accompagnatori" as const,
-                        label: "Accompagnatori",
-                        icon: Users,
-                      },
-                      {
-                        id: "tassa" as const,
-                        label: "Tassa & Extra",
-                        icon: Coins,
-                      },
-                      ...(selectedReservationForEdit
-                        ? [
-                            {
-                              id: "ricevuta" as const,
-                              label: "Ricevuta",
-                              icon: Download,
-                            },
-                          ]
-                        : []),
-                    ].map((tab) => {
-                      const Icon = tab.icon;
-                      const isActive = activeResTab === tab.id;
-                      return (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() => setActiveResTab(tab.id)}
-                          className={`flex items-center gap-1.5 px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider whitespace-nowrap border-b-2 transition-all cursor-pointer ${isActive ? "border-accent-500 text-accent-600" : "border-transparent text-slate-400 hover:text-slate-600"}`}
-                        >
-                          {" "}
-                          <Icon className="w-3.5 h-3.5" /> {tab.label}{" "}
-                        </button>
-                      );
-                    })}{" "}
-                  </div>{" "}
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
                   {/* Scrollable Body */}{" "}
-                  <div className="flex-grow overflow-y-auto p-6 scrollbar-thin">
+                  <div className="flex-grow overflow-y-auto px-5 md:px-8 py-4 scrollbar-thin">
                     {" "}
                     {isExternalIcal && activeResTab === "soggiorno" && (
                       <div className="mb-4 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-700 text-xs font-medium flex items-start gap-2.5 leading-relaxed">
@@ -3634,20 +3818,20 @@ export const App: React.FC = () => {
                             Sincronizzazione Automatica
                           </span>{" "}
                           Date e camera sono importate via iCal e gestite dal
-                          canale OTA: non modificabili qui. Collega perÃ²
-                          l'anagrafica ospite qui sotto â€” Ã¨ necessaria per la
+                          canale OTA: non modificabili qui. Collega però
+                          l'anagrafica ospite qui sotto — è necessaria per la
                           comunicazione Alloggiati Web e il calcolo della tassa
                           di soggiorno, che altrimenti non vengono effettuati
                           per questa prenotazione.{" "}
                         </div>{" "}
                       </div>
                     )}{" "}
-                    <div className="space-y-4">
+                    <div className="space-y-8">
                       {" "}
                       {activeResTab === "soggiorno" && (
-                        <div className="bg-slate-50 rounded-2xl border border-slate-200/50 transition-all duration-300">
+                        <div className="">
                           {" "}
-                          <div className="flex items-center p-4 select-none rounded-t-2xl">
+                          <div className="hidden">
                             {" "}
                             <span className="text-[10px] font-bold text-accent-600 uppercase tracking-widest flex items-center gap-1.5">
                               {" "}
@@ -3656,12 +3840,12 @@ export const App: React.FC = () => {
                             </span>{" "}
                           </div>{" "}
                           {true && (
-                            <div className="p-4 pt-0 space-y-4 border-t border-slate-200/20">
+                            <div className="space-y-4">
                               {" "}
                               <div className="pt-3">
                                 {" "}
-                                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                                  Seleziona Camera
+                                <label className="block text-xs font-medium text-slate-500 mb-1.5">
+                                  Camera
                                 </label>{" "}
                                 <select
                                   required
@@ -3685,8 +3869,8 @@ export const App: React.FC = () => {
                                 {" "}
                                 <div>
                                   {" "}
-                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                                    Check-In
+                                  <label className="block text-xs font-medium text-slate-500 mb-1.5">
+                                    Check-in
                                   </label>{" "}
                                   <input
                                     type="date"
@@ -3702,8 +3886,8 @@ export const App: React.FC = () => {
                                 </div>{" "}
                                 <div>
                                   {" "}
-                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                                    Check-Out
+                                  <label className="block text-xs font-medium text-slate-500 mb-1.5">
+                                    Check-out
                                   </label>{" "}
                                   <input
                                     type="date"
@@ -3720,8 +3904,8 @@ export const App: React.FC = () => {
                               </div>{" "}
                               <div>
                                 {" "}
-                                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                                  Canale / Sorgente
+                                <label className="block text-xs font-medium text-slate-500 mb-1.5">
+                                  Canale
                                 </label>{" "}
                                 <select
                                   disabled={isExternalIcal}
@@ -3747,8 +3931,8 @@ export const App: React.FC = () => {
                               {!isExternalIcal && (
                                 <div>
                                   {" "}
-                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
-                                    Prezzo per Notte (â‚¬)
+                                  <label className="block text-xs font-medium text-slate-500 mb-1.5">
+                                    Prezzo per notte (€)
                                   </label>{" "}
                                   <input
                                     type="number"
@@ -3761,83 +3945,30 @@ export const App: React.FC = () => {
                                     placeholder="Non impostato"
                                     className="glass-input block w-full px-3 py-3 rounded-xl text-slate-900 text-sm focus:outline-none"
                                   />{" "}
-                                  {newResPrice &&
-                                    newResCheckIn &&
-                                    newResCheckOut &&
-                                    (() => {
-                                      const nights = Math.round(
-                                        (new Date(newResCheckOut).getTime() -
-                                          new Date(newResCheckIn).getTime()) /
-                                          (1000 * 60 * 60 * 24),
-                                      );
-                                      const soggiorno =
-                                        nights > 0
-                                          ? nights * parseFloat(newResPrice)
-                                          : null;
-                                      const extra = charges.reduce(
-                                        (s, c) => s + c.importo,
-                                        0,
-                                      );
-                                      if (soggiorno === null) return null;
-                                      return (
-                                        <p className="text-[10px] text-slate-500 font-semibold mt-1.5 ml-1">
-                                          {" "}
-                                          {extra > 0 ? (
-                                            <>
-                                              {" "}
-                                              Soggiorno:{" "}
-                                              <span className="font-bold">
-                                                â‚¬ {soggiorno.toFixed(2)}
-                                              </span>{" "}
-                                              ({nights}{" "}
-                                              {nights === 1 ? "notte" : "notti"}
-                                              ) {" + "}extra:{" "}
-                                              <span className="font-bold">
-                                                â‚¬ {extra.toFixed(2)}
-                                              </span>{" "}
-                                              {" = "}Totale:{" "}
-                                              <span className="text-accent-600 font-bold">
-                                                â‚¬{" "}
-                                                {(soggiorno + extra).toFixed(2)}
-                                              </span>{" "}
-                                            </>
-                                          ) : (
-                                            <>
-                                              Totale soggiorno:{" "}
-                                              <span className="text-accent-600 font-bold">
-                                                â‚¬ {soggiorno.toFixed(2)}
-                                              </span>{" "}
-                                              ({nights}{" "}
-                                              {nights === 1 ? "notte" : "notti"}
-                                              )
-                                            </>
-                                          )}{" "}
-                                        </p>
-                                      );
-                                    })()}{" "}
+                                  
                                 </div>
                               )}{" "}
                             </div>
                           )}{" "}
                         </div>
                       )}{" "}
-                      {/* Addebiti Extra â€” tassa tab, edit mode only */}{" "}
+                      {/* Addebiti Extra — tassa tab, edit mode only */}{" "}
                       {selectedReservationForEdit &&
                         activeResTab === "tassa" && (
-                          <div className="bg-slate-50 rounded-2xl border border-slate-200/50 transition-all duration-300">
+                          <div className="">
                             {" "}
-                            <div className="flex justify-between items-center p-4 select-none rounded-t-2xl">
+                            <div className="flex justify-between items-center pb-3 select-none">
                               {" "}
                               <span className="text-[10px] font-bold text-accent-600 uppercase tracking-widest flex items-center gap-1.5">
                                 {" "}
                                 <Receipt className="w-3.5 h-3.5 text-accent-500" />{" "}
-                                Addebiti Extra{" "}
+                                Extra{" "}
                               </span>{" "}
                               <div className="flex items-center gap-2">
                                 {" "}
                                 {charges.length > 0 && (
                                   <span className="text-xs font-extrabold text-accent-600">
-                                    â‚¬{" "}
+                                    €{" "}
                                     {charges
                                       .reduce((s, c) => s + c.importo, 0)
                                       .toFixed(2)}
@@ -3846,7 +3977,7 @@ export const App: React.FC = () => {
                               </div>{" "}
                             </div>{" "}
                             {true && (
-                              <div className="p-4 pt-0 space-y-3 border-t border-slate-200/20">
+                              <div className="space-y-3">
                                 {" "}
                                 <div className="flex gap-2 pt-3">
                                   {" "}
@@ -3867,7 +3998,7 @@ export const App: React.FC = () => {
                                     onChange={(e) =>
                                       setNewChargeAmount(e.target.value)
                                     }
-                                    placeholder="â‚¬"
+                                    placeholder="€"
                                     className="glass-input w-20 px-2.5 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
                                   />{" "}
                                   <button
@@ -3897,7 +4028,7 @@ export const App: React.FC = () => {
                                         <div className="flex items-center gap-2 flex-shrink-0">
                                           {" "}
                                           <span className="font-bold text-slate-800">
-                                            â‚¬ {c.importo.toFixed(2)}
+                                            € {c.importo.toFixed(2)}
                                           </span>{" "}
                                           <button
                                             type="button"
@@ -3918,7 +4049,7 @@ export const App: React.FC = () => {
                                         {charges.length === 1 ? "voce" : "voci"}
                                       </span>{" "}
                                       <span className="text-sm font-extrabold text-accent-600">
-                                        Totale extra: â‚¬{" "}
+                                        Totale extra: €{" "}
                                         {charges
                                           .reduce((s, c) => s + c.importo, 0)
                                           .toFixed(2)}
@@ -3930,51 +4061,89 @@ export const App: React.FC = () => {
                             )}{" "}
                           </div>
                         )}{" "}
-                      {/* Ricevuta â€” ricevuta tab, edit mode only */}{" "}
+                      {/* Ricevuta — ricevuta tab, edit mode only */}{" "}
                       {selectedReservationForEdit &&
                         activeResTab === "ricevuta" && (
-                          <div className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl flex items-center justify-between gap-3 select-none flex-wrap">
-                            {" "}
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-                              {" "}
-                              <Download className="w-3.5 h-3.5 text-accent-500" />{" "}
-                              Ricevuta di Soggiorno (PDF){" "}
-                            </span>{" "}
-                            <div className="flex rounded-xl border border-accent-500/20 overflow-hidden flex-shrink-0">
-                              {" "}
-                              <select
-                                value={receiptLang}
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-xs font-medium text-slate-500 mb-1.5">
+                                Intestata a
+                              </label>
+                              <input
+                                type="text"
+                                value={receiptRecipient}
                                 onChange={(e) =>
-                                  setReceiptLang(
-                                    e.target.value as typeof receiptLang,
-                                  )
+                                  setReceiptRecipient(e.target.value)
                                 }
-                                title="Lingua della ricevuta"
-                                className="text-accent-600 bg-white font-bold text-[10px] uppercase tracking-widest pl-3 pr-1 border-r border-accent-500/20 focus:outline-none cursor-pointer"
-                              >
-                                {" "}
-                                <option value="it">IT</option>
-                                <option value="en">EN</option>
-                                <option value="es">ES</option>
-                                <option value="de">DE</option>
-                                <option value="fr">FR</option>{" "}
-                              </select>{" "}
+                                placeholder={resGuestLabel}
+                                className="glass-input block w-full px-3 py-2.5 rounded-xl text-slate-900 text-sm focus:outline-none"
+                              />
+                              <p className="text-[11px] text-slate-400 mt-1.5">
+                                Lascia vuoto per usare il nome dell'ospite. Per
+                                un'azienda scrivi ad esempio "Rossi Srl, P.IVA
+                                01234567890".
+                              </p>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                              <div>
+                                <label className="block text-xs font-medium text-slate-500 mb-1.5">
+                                  Lingua
+                                </label>
+                                <select
+                                  value={receiptLang}
+                                  onChange={(e) =>
+                                    setReceiptLang(
+                                      e.target.value as typeof receiptLang,
+                                    )
+                                  }
+                                  className="glass-input block w-full px-3 py-2.5 rounded-xl text-slate-900 text-sm focus:outline-none bg-white"
+                                >
+                                  <option value="it">Italiano</option>
+                                  <option value="en">English</option>
+                                  <option value="es">Español</option>
+                                  <option value="de">Deutsch</option>
+                                  <option value="fr">Français</option>
+                                </select>
+                              </div>
+                              <div className="col-span-2">
+                                <label className="block text-xs font-medium text-slate-500 mb-1.5">
+                                  Invia a (email)
+                                </label>
+                                <input
+                                  type="email"
+                                  value={receiptEmail}
+                                  onChange={(e) =>
+                                    setReceiptEmail(e.target.value)
+                                  }
+                                  placeholder="nome@esempio.it"
+                                  className="glass-input block w-full px-3 py-2.5 rounded-xl text-slate-900 text-sm focus:outline-none"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex gap-2 flex-wrap">
                               <button
                                 type="button"
                                 onClick={handleDownloadReceipt}
-                                className="px-4 py-2 text-white bg-accent-500 hover:bg-accent-600 font-bold text-xs uppercase tracking-wider transition-all cursor-pointer active:scale-95 flex items-center gap-1.5"
+                                className="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-sm font-medium text-slate-800 flex items-center gap-2 cursor-pointer"
                               >
-                                {" "}
-                                <Download className="w-3.5 h-3.5" />{" "}
-                                Scarica{" "}
-                              </button>{" "}
-                            </div>{" "}
+                                <Download className="w-4 h-4" /> Scarica PDF
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleEmailReceipt}
+                                disabled={receiptSending}
+                                className="px-4 py-2 rounded-lg bg-accent-600 hover:bg-accent-700 text-white text-sm font-semibold flex items-center gap-2 cursor-pointer disabled:opacity-60"
+                              >
+                                <Mail className="w-4 h-4" />{" "}
+                                {receiptSending ? "Invio in corso..." : "Invia per email"}
+                              </button>
+                            </div>
                           </div>
                         )}{" "}
                       {activeResTab === "cliente" && (
-                        <div className="bg-slate-50 rounded-2xl border border-slate-200/50 transition-all duration-300">
+                        <div className="">
                           {" "}
-                          <div className="flex justify-between items-center p-4 select-none rounded-t-2xl">
+                          <div className="hidden">
                             {" "}
                             <span className="text-[10px] font-bold text-accent-600 uppercase tracking-widest flex items-center gap-1.5">
                               {" "}
@@ -3983,7 +4152,7 @@ export const App: React.FC = () => {
                             </span>{" "}
                           </div>{" "}
                           {true && (
-                            <div className="p-4 pt-0 space-y-4 border-t border-slate-200/20">
+                            <div className="space-y-4">
                               {" "}
                               <div className="flex justify-between items-center select-none pt-3">
                                 {" "}
@@ -4008,30 +4177,33 @@ export const App: React.FC = () => {
                                         setNewCustomerBirth(
                                           selectedCustomer.dataNascita,
                                         );
-                                        setNewCustomerBirthPlace(
-                                          selectedCustomer.luogoNascita || "",
+                                        setNewCustomerBirthGeo(
+                                          birthGeoFromCustomer(selectedCustomer),
                                         );
                                         setNewCustomerCitizen(
                                           selectedCustomer.cittadinanza ||
                                             "100000100",
                                         );
                                         setNewCustomerDocType(
-                                          selectedCustomer.tipoDocumento ||
-                                            "CARTA_IDENTITA",
+                                          normalizeDocType(
+                                            selectedCustomer.tipoDocumento,
+                                          ),
                                         );
                                         setNewCustomerDocNum(
                                           selectedCustomer.numeroDocumento ||
                                             "",
                                         );
                                         setNewCustomerDocPlace(
-                                          selectedCustomer.luogoRilascio || "",
+                                          validPlaceCode(
+                                            selectedCustomer.luogoRilascio,
+                                          ),
                                         );
                                         setShowCreateCustomer(true);
                                       }}
-                                      className="text-[9px] font-bold text-amber-600 hover:text-amber-700 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded-lg transition-all"
+                                      className="text-xs font-semibold text-amber-700 hover:text-amber-800 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-lg transition-all cursor-pointer"
                                     >
                                       {" "}
-                                      Modifica Anagrafica{" "}
+                                      Modifica anagrafica{" "}
                                     </button>
                                   )}{" "}
                                   <button
@@ -4044,21 +4216,21 @@ export const App: React.FC = () => {
                                         setNewCustomerCognome("");
                                         setNewCustomerSesso("M");
                                         setNewCustomerBirth("");
-                                        setNewCustomerBirthPlace("");
+                                        setNewCustomerBirthGeo(EMPTY_BIRTH);
                                         setNewCustomerCitizen("100000100");
-                                        setNewCustomerDocType("CARTA_IDENTITA");
+                                        setNewCustomerDocType("IDENT");
                                         setNewCustomerDocNum("");
                                         setNewCustomerDocPlace("");
                                         setSelectedCustomer(null);
                                         setShowCreateCustomer(true);
                                       }
                                     }}
-                                    className="text-[9px] font-bold text-accent-600 hover:text-accent-700 bg-accent-500/10 hover:bg-accent-500/20 px-2 py-1 rounded-lg transition-all"
+                                    className="text-xs font-semibold text-accent-600 hover:text-accent-700 bg-accent-500/10 hover:bg-accent-500/20 px-3 py-1.5 rounded-lg transition-all cursor-pointer"
                                   >
                                     {" "}
                                     {showCreateCustomer
-                                      ? "Cerca Anagrafica"
-                                      : "+ Crea Nuovo"}{" "}
+                                      ? "Cerca anagrafica"
+                                      : "+ Nuovo cliente"}{" "}
                                   </button>{" "}
                                 </div>{" "}
                               </div>{" "}
@@ -4090,6 +4262,17 @@ export const App: React.FC = () => {
                                       setCustomerSearch(e.target.value);
                                       setSelectedCustomer(null);
                                     }}
+                                    onKeyDown={(e) =>
+                                      dropdownKeyDown(
+                                        e,
+                                        customerResults,
+                                        custActive,
+                                        setCustActive,
+                                        pickCustomer,
+                                        () => setCustomerResults([]),
+                                      )
+                                    }
+                                    autoComplete="off"
                                     className="glass-input block w-full px-3.5 py-2.5 rounded-xl text-slate-900 text-xs focus:outline-none"
                                     placeholder="Cerca cliente per Cognome o Nome..."
                                   />{" "}
@@ -4107,20 +4290,22 @@ export const App: React.FC = () => {
                                     </button>
                                   )}{" "}
                                   {customerResults.length > 0 && (
-                                    <div className="absolute left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg z-50">
+                                    <div
+                                      ref={custListRef}
+                                      role="listbox"
+                                      className="absolute left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg z-50"
+                                    >
                                       {" "}
-                                      {customerResults.map((cust) => (
+                                      {customerResults.map((cust, i) => (
                                         <button
                                           key={cust.id}
                                           type="button"
-                                          onClick={() => {
-                                            setSelectedCustomer(cust);
-                                            setCustomerSearch(
-                                              `${cust.cognome} ${cust.nome}`,
-                                            );
-                                            setCustomerResults([]);
-                                          }}
-                                          className="w-full text-left px-3 py-2 hover:bg-slate-100 text-xs font-semibold text-slate-800 transition-colors"
+                                          role="option"
+                                          aria-selected={i === custActive}
+                                          tabIndex={-1}
+                                          onClick={() => pickCustomer(cust)}
+                                          onMouseEnter={() => setCustActive(i)}
+                                          className={`w-full text-left px-3 py-2 text-xs font-semibold text-slate-800 transition-colors ${i === custActive ? "bg-slate-100" : ""}`}
                                         >
                                           {" "}
                                           {cust.cognome} {cust.nome} (
@@ -4131,13 +4316,66 @@ export const App: React.FC = () => {
                                   )}{" "}
                                 </div>
                               )}{" "}
+                              {!showCreateCustomer &&
+                                selectedCustomer &&
+                                (() => {
+                                  const c = selectedCustomer;
+                                  const g = birthGeoFromCustomer(c);
+                                  const nascitaPlace = g.abroad
+                                    ? findPlace(g.stato)
+                                    : findPlace(g.comune);
+                                  const rows: [string, string][] = [
+                                    ["Nome", c.nome],
+                                    ["Cognome", c.cognome],
+                                    ["Sesso", c.sesso || "—"],
+                                    [
+                                      "Data di nascita",
+                                      c.dataNascita
+                                        ? c.dataNascita.split("-").reverse().join("/")
+                                        : "—",
+                                    ],
+                                    [
+                                      "Luogo di nascita",
+                                      nascitaPlace ? placeLabel(nascitaPlace) : "—",
+                                    ],
+                                    [
+                                      "Cittadinanza",
+                                      findPlace(c.cittadinanza)?.name || "—",
+                                    ],
+                                    [
+                                      "Documento",
+                                      c.numeroDocumento
+                                        ? `${DOCUMENTI.find((d) => d.code === normalizeDocType(c.tipoDocumento))?.name ?? ""} ${c.numeroDocumento}`.trim()
+                                        : "—",
+                                    ],
+                                    [
+                                      "Luogo di rilascio",
+                                      findPlace(validPlaceCode(c.luogoRilascio))?.name || "—",
+                                    ],
+                                  ];
+                                  return (
+                                    <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
+                                      {rows.map(([label, value]) => (
+                                        <div
+                                          key={label}
+                                          className="flex justify-between gap-4 px-4 py-2 text-sm"
+                                        >
+                                          <span className="text-slate-500">{label}</span>
+                                          <span className="text-slate-900 text-right">{value}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}{" "}
                               {showCreateCustomer && (
                                 <div className="space-y-3">
                                   {" "}
                                   <div className="flex justify-between items-center">
                                     {" "}
                                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                                      Nuovo Profilo Cliente
+                                      {selectedCustomer
+                                        ? "Modifica profilo cliente"
+                                        : "Nuovo profilo cliente"}
                                     </span>{" "}
                                     <button
                                       type="button"
@@ -4149,6 +4387,12 @@ export const App: React.FC = () => {
                                       ID{" "}
                                     </button>{" "}
                                   </div>{" "}
+                                  {selectedCustomer && (
+                                    <p className="text-[11px] text-amber-700 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                                      Le modifiche valgono per tutte le
+                                      prenotazioni di questo cliente.
+                                    </p>
+                                  )}
                                   <div className="grid grid-cols-2 gap-2">
                                     {" "}
                                     <input
@@ -4196,32 +4440,23 @@ export const App: React.FC = () => {
                                       className="glass-input col-span-2 block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
                                     />{" "}
                                   </div>{" "}
-                                  <div className="grid grid-cols-2 gap-2">
+                                  <div className="grid grid-cols-1 gap-2">
                                     {" "}
-                                    <input
-                                      type="text"
-                                      placeholder="Luogo Nascita"
-                                      value={newCustomerBirthPlace}
-                                      onChange={(e) =>
-                                        setNewCustomerBirthPlace(e.target.value)
+                                    <PlaceSelect
+                                      options={STATI}
+                                      value={newCustomerCitizen}
+                                      onChange={(pl) =>
+                                        setNewCustomerCitizen(pl ? pl.code : "")
                                       }
+                                      placeholder="Cittadinanza"
                                       className="glass-input block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
                                     />{" "}
-                                    <select
-                                      value={newCustomerCitizen}
-                                      onChange={(e) =>
-                                        setNewCustomerCitizen(e.target.value)
-                                      }
-                                      className="glass-input block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none bg-white"
-                                    >
-                                      {" "}
-                                      {CITIZENSHIP_OPTIONS.map((c) => (
-                                        <option key={c.code} value={c.code}>
-                                          {c.name}
-                                        </option>
-                                      ))}{" "}
-                                    </select>{" "}
                                   </div>{" "}
+                                  <BirthPlaceInput
+                                    value={newCustomerBirthGeo}
+                                    onChange={setNewCustomerBirthGeo}
+                                    className="glass-input block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
+                                  />{" "}
                                   <div className="grid grid-cols-3 gap-2">
                                     {" "}
                                     <select
@@ -4232,13 +4467,13 @@ export const App: React.FC = () => {
                                       className="glass-input block w-full px-1 py-2 rounded-xl text-slate-900 text-[10px] focus:outline-none bg-white"
                                     >
                                       {" "}
-                                      <option value="CARTA_IDENTITA">
+                                      <option value="IDENT">
                                         Carta ID
                                       </option>{" "}
-                                      <option value="PASSAPORTO">
+                                      <option value="PASOR">
                                         Passaporto
                                       </option>{" "}
-                                      <option value="PATENTE">
+                                      <option value="PATEN">
                                         Patente
                                       </option>{" "}
                                     </select>{" "}
@@ -4252,13 +4487,13 @@ export const App: React.FC = () => {
                                       className="glass-input col-span-2 block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
                                     />{" "}
                                   </div>{" "}
-                                  <input
-                                    type="text"
-                                    placeholder="Luogo Rilascio"
+                                  <PlaceSelect
+                                    options={LUOGHI}
                                     value={newCustomerDocPlace}
-                                    onChange={(e) =>
-                                      setNewCustomerDocPlace(e.target.value)
+                                    onChange={(pl) =>
+                                      setNewCustomerDocPlace(pl ? pl.code : "")
                                     }
+                                    placeholder="Luogo Rilascio (comune o stato)"
                                     className="glass-input block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
                                   />{" "}
                                   <button
@@ -4278,9 +4513,9 @@ export const App: React.FC = () => {
                         </div>
                       )}{" "}
                       {activeResTab === "accompagnatori" && (
-                        <div className="bg-slate-50 rounded-2xl border border-slate-200/50 transition-all duration-300">
+                        <div className="">
                           {" "}
-                          <div className="flex justify-between items-center p-4 select-none rounded-t-2xl">
+                          <div className="hidden">
                             {" "}
                             <span className="text-[10px] font-bold text-accent-600 uppercase tracking-widest flex items-center gap-1.5">
                               {" "}
@@ -4289,7 +4524,7 @@ export const App: React.FC = () => {
                             </span>{" "}
                           </div>{" "}
                           {true && (
-                            <div className="p-4 pt-0 space-y-3 border-t border-slate-200/20">
+                            <div className="space-y-3">
                               {" "}
                               <div className="flex justify-between items-center select-none pt-3">
                                 {" "}
@@ -4306,12 +4541,12 @@ export const App: React.FC = () => {
                                       setNewAccCognome("");
                                       setNewAccSesso("M");
                                       setNewAccBirth("");
-                                      setNewAccBirthPlace("");
+                                      setNewAccBirthGeo(EMPTY_BIRTH);
                                       setNewAccCitizen("100000100");
                                       setShowCreateAccompanying(true);
                                     }
                                   }}
-                                  className="text-[9px] font-bold text-accent-600 hover:text-accent-700 bg-accent-500/10 hover:bg-accent-500/20 px-2 py-1 rounded-lg transition-all"
+                                  className="text-xs font-semibold text-accent-600 hover:text-accent-700 bg-accent-500/10 hover:bg-accent-500/20 px-3 py-1.5 rounded-lg transition-all cursor-pointer"
                                 >
                                   {" "}
                                   {showCreateAccompanying
@@ -4328,31 +4563,37 @@ export const App: React.FC = () => {
                                     onChange={(e) =>
                                       setAccSearch(e.target.value)
                                     }
+                                    onKeyDown={(e) =>
+                                      dropdownKeyDown(
+                                        e,
+                                        accResults,
+                                        accActive,
+                                        setAccActive,
+                                        pickAccompanying,
+                                        () => setAccResults([]),
+                                      )
+                                    }
+                                    autoComplete="off"
                                     className="glass-input block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
                                     placeholder="Cerca ed aggiungi accompagnatori..."
                                   />{" "}
                                   {accResults.length > 0 && (
-                                    <div className="absolute left-0 right-0 mt-1 max-h-36 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg z-50">
+                                    <div
+                                      ref={accListRef}
+                                      role="listbox"
+                                      className="absolute left-0 right-0 mt-1 max-h-36 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg z-50"
+                                    >
                                       {" "}
-                                      {accResults.map((cust) => (
+                                      {accResults.map((cust, i) => (
                                         <button
                                           key={cust.id}
                                           type="button"
-                                          onClick={() => {
-                                            if (
-                                              !accompanyingGuests.some(
-                                                (ag) => ag.id === cust.id,
-                                              )
-                                            ) {
-                                              setAccompanyingGuests([
-                                                ...accompanyingGuests,
-                                                cust,
-                                              ]);
-                                            }
-                                            setAccSearch("");
-                                            setAccResults([]);
-                                          }}
-                                          className="w-full text-left px-3 py-1.5 hover:bg-slate-100 text-xs font-semibold text-slate-800 transition-colors"
+                                          role="option"
+                                          aria-selected={i === accActive}
+                                          tabIndex={-1}
+                                          onClick={() => pickAccompanying(cust)}
+                                          onMouseEnter={() => setAccActive(i)}
+                                          className={`w-full text-left px-3 py-1.5 text-xs font-semibold text-slate-800 transition-colors ${i === accActive ? "bg-slate-100" : ""}`}
                                         >
                                           {" "}
                                           {cust.cognome} {cust.nome} (
@@ -4431,32 +4672,20 @@ export const App: React.FC = () => {
                                       className="glass-input col-span-2 block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
                                     />{" "}
                                   </div>{" "}
-                                  <div className="grid grid-cols-2 gap-2">
-                                    {" "}
-                                    <input
-                                      type="text"
-                                      placeholder="Luogo Nascita"
-                                      value={newAccBirthPlace}
-                                      onChange={(e) =>
-                                        setNewAccBirthPlace(e.target.value)
-                                      }
-                                      className="glass-input block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
-                                    />{" "}
-                                    <select
-                                      value={newAccCitizen}
-                                      onChange={(e) =>
-                                        setNewAccCitizen(e.target.value)
-                                      }
-                                      className="glass-input block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none bg-white"
-                                    >
-                                      {" "}
-                                      {CITIZENSHIP_OPTIONS.map((c) => (
-                                        <option key={c.code} value={c.code}>
-                                          {c.name}
-                                        </option>
-                                      ))}{" "}
-                                    </select>{" "}
-                                  </div>{" "}
+                                  <BirthPlaceInput
+                                    value={newAccBirthGeo}
+                                    onChange={setNewAccBirthGeo}
+                                    className="glass-input block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
+                                  />{" "}
+                                  <PlaceSelect
+                                    options={STATI}
+                                    value={newAccCitizen}
+                                    onChange={(pl) =>
+                                      setNewAccCitizen(pl ? pl.code : "")
+                                    }
+                                    placeholder="Cittadinanza"
+                                    className="glass-input block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
+                                  />{" "}
                                   <button
                                     type="button"
                                     onClick={handleSaveAccompanyingGuest}
@@ -4468,7 +4697,7 @@ export const App: React.FC = () => {
                                 </div>
                               )}{" "}
                               {accompanyingGuests.length > 0 && (
-                                <div className="space-y-1.5 max-h-24 overflow-y-auto pr-1">
+                                <div className="space-y-1.5">
                                   {" "}
                                   {accompanyingGuests.map((ag) => (
                                     <div
@@ -4501,31 +4730,31 @@ export const App: React.FC = () => {
                           )}{" "}
                         </div>
                       )}{" "}
-                      {/* Tassa di Soggiorno â€” tassa tab */}{" "}
+                      {/* Tassa di Soggiorno — tassa tab */}{" "}
                       {activeResTab === "tassa" &&
                         (selectedCustomer || accompanyingGuests.length > 0) &&
                         newResCheckIn &&
                         newResCheckOut && (
-                          <div className="bg-slate-50 rounded-2xl border border-slate-200/50 transition-all duration-300">
+                          <div className="">
                             {" "}
-                            <div className="flex justify-between items-center p-4 select-none rounded-t-2xl">
+                            <div className="flex justify-between items-center pb-3 select-none">
                               {" "}
                               <span className="text-[10px] font-bold text-accent-600 uppercase tracking-widest flex items-center gap-1.5">
                                 {" "}
                                 <Coins className="w-3.5 h-3.5 text-accent-500" />{" "}
-                                Tassa di Soggiorno{" "}
+                                Imposta di soggiorno{" "}
                               </span>{" "}
                               <div className="flex items-center gap-2">
                                 {" "}
                                 {touristTaxResult && (
                                   <span className="text-xs font-extrabold text-accent-600">
-                                    â‚¬ {touristTaxResult.totale.toFixed(2)}
+                                    € {touristTaxResult.totale.toFixed(2)}
                                   </span>
                                 )}{" "}
                               </div>{" "}
                             </div>{" "}
                             {true && (
-                              <div className="p-4 pt-0 space-y-2 border-t border-slate-200/20">
+                              <div className="space-y-2">
                                 {" "}
                                 {touristTaxLoading && (
                                   <p className="text-xs text-slate-400 text-center py-3">
@@ -4575,7 +4804,7 @@ export const App: React.FC = () => {
                                                 <div className="flex items-center gap-2 flex-shrink-0">
                                                   {" "}
                                                   <span className="font-bold text-slate-700">
-                                                    â‚¬{" "}
+                                                    €{" "}
                                                     {guest.importo.toFixed(2)}
                                                   </span>{" "}
                                                   {selectedReservationForEdit ? (
@@ -4646,7 +4875,7 @@ export const App: React.FC = () => {
                                           notti tassabili{" "}
                                         </span>{" "}
                                         <span className="text-sm font-extrabold text-accent-600">
-                                          Totale: â‚¬{" "}
+                                          Totale: €{" "}
                                           {touristTaxResult.totale.toFixed(2)}
                                         </span>{" "}
                                       </div>{" "}
@@ -4656,7 +4885,7 @@ export const App: React.FC = () => {
                             )}{" "}
                           </div>
                         )}{" "}
-                      {/* Public Self Check-in Link Copy Block â€” ricevuta tab */}{" "}
+                      {/* Public Self Check-in Link Copy Block — ricevuta tab */}{" "}
                       {selectedReservationForEdit &&
                         activeResTab === "ricevuta" && (
                           <div className="p-4 bg-accent-500/5 border border-accent-500/15 rounded-2xl space-y-2 select-none">
@@ -4705,33 +4934,67 @@ export const App: React.FC = () => {
                     </div>
                     {/* end soggiorno tabs wrapper */}{" "}
                   </div>{" "}
-                  {/* Sticky Footer */}{" "}
-                  <div className="p-6 pt-4 border-t border-slate-200/50 flex gap-3 shrink-0 bg-white/75 backdrop-blur-sm select-none">
-                    {" "}
-                    {selectedReservationForEdit && (
+                  {/* Sticky Footer */}
+                  <div className="px-4 md:px-8 py-3 md:py-4 border-t border-slate-200 flex items-center gap-3 shrink-0 bg-white select-none">
+                    {selectedReservationForEdit ? (
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setShowResMoreMenu((v) => !v)}
+                          className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900 cursor-pointer"
+                        >
+                          <Ellipsis className="w-4 h-4" /> <span className="hidden md:inline">Altre azioni</span>
+                        </button>
+                        {showResMoreMenu && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-10"
+                              onClick={() => setShowResMoreMenu(false)}
+                            />
+                            <div className="absolute bottom-full left-0 mb-2 z-20 min-w-[200px] bg-white border border-slate-200 rounded-xl shadow-lg py-1">
+                              <button
+                                type="button"
+                                disabled={isExternalIcal}
+                                onClick={() => {
+                                  setShowResMoreMenu(false);
+                                  handleDeleteReservation();
+                                }}
+                                className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                <Trash2 className="w-4 h-4" /> Elimina prenotazione
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ) : (
+                      <span />
+                    )}
+                    <span className="md:hidden ml-auto text-sm font-semibold text-slate-900 whitespace-nowrap">
+                      € {resTotal.toFixed(2)}
+                    </span>
+                    <div className="flex gap-2 md:ml-auto">
                       <button
                         type="button"
-                        onClick={handleDeleteReservation}
-                        disabled={isExternalIcal}
-                        className="px-4 py-3 rounded-xl text-red-500 hover:text-white bg-red-500/10 hover:bg-red-500 border border-red-500/20 font-bold text-xs uppercase tracking-widest transition-all duration-200 cursor-pointer active:scale-95 disabled:opacity-40 disabled:hover:bg-red-500/10 disabled:hover:text-red-500 disabled:cursor-not-allowed"
+                        onClick={closeReservationModal}
+                        className="px-4 py-2 rounded-lg border border-slate-300 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer whitespace-nowrap"
                       >
-                        {" "}
-                        Elimina{" "}
+                        Annulla
                       </button>
-                    )}{" "}
-                    <button
-                      type="submit"
-                      disabled={isExternalIcal}
-                      className="btn-glow-primary flex-grow py-3.5 px-4 rounded-xl text-white font-bold uppercase tracking-widest text-xs shadow-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {" "}
-                      {selectedReservationForEdit
-                        ? "Salva Modifiche"
-                        : "Salva Prenotazione"}{" "}
-                    </button>{" "}
-                  </div>{" "}
-                </form>{" "}
-              </div>{" "}
+                      <button
+                        type="submit"
+                        disabled={isExternalIcal}
+                        className="px-5 py-2 rounded-lg bg-accent-600 hover:bg-accent-700 text-white text-sm font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                      >
+                        {selectedReservationForEdit
+                          ? "Salva modifiche"
+                          : "Salva prenotazione"}
+                      </button>
+                    </div>
+                  </div>
+                  </div>
+                </form>
+              </div>
             </div>
           );
         })()}{" "}
@@ -4904,21 +5167,46 @@ export const App: React.FC = () => {
                   Genera il file a larghezza fissa (.txt) da caricare per la
                   notifica delle schedine alloggiati.{" "}
                 </p>{" "}
-                <div className="flex gap-2">
-                  {" "}
-                  <input
-                    type="date"
-                    value={complianceDate}
-                    onChange={(e) => setComplianceDate(e.target.value)}
-                    className="glass-input flex-grow px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
-                  />{" "}
+                <p className="text-[10px] text-slate-400 font-semibold">
+                  Vengono incluse le prenotazioni con check-in nel periodo
+                  (dal giorno di arrivo, una sola volta per ospite).
+                </p>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="min-w-0">
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 ml-1">
+                        Dal
+                      </label>
+                      <input
+                        type="date"
+                        value={complianceDate}
+                        onChange={(e) => {
+                          setComplianceDate(e.target.value);
+                          if (complianceDateTo < e.target.value)
+                            setComplianceDateTo(e.target.value);
+                        }}
+                        className="glass-input block w-full min-w-0 px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 ml-1">
+                        Al
+                      </label>
+                      <input
+                        type="date"
+                        value={complianceDateTo}
+                        min={complianceDate}
+                        onChange={(e) => setComplianceDateTo(e.target.value)}
+                        className="glass-input block w-full min-w-0 px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
+                      />
+                    </div>
+                  </div>
                   <button
                     onClick={triggerAlloggiatiWebExport}
-                    className="px-4 py-2 rounded-xl text-white font-bold bg-accent-500 hover:bg-accent-600 transition-all text-xs flex items-center gap-1 cursor-pointer"
+                    className="w-full px-4 py-2.5 rounded-xl text-white font-bold bg-accent-500 hover:bg-accent-600 transition-all text-xs flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    {" "}
-                    <Download className="w-3.5 h-3.5" /> Esporta TXT{" "}
-                  </button>{" "}
+                    <Download className="w-3.5 h-3.5" /> Esporta TXT
+                  </button>
                 </div>{" "}
               </div>{" "}
             </div>{" "}

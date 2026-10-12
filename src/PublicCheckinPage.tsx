@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Hotel, User, Users, CheckCircle2, ChevronRight, ChevronLeft,
   Plus, Trash2, Calendar, ShieldAlert, Sparkles, Loader2
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { DocumentScanner } from './DocumentScanner';
-import { Lang, LANGS, detectLang, t, localizedCountryName, ocrLangFor } from './checkinI18n';
+import { PlaceSelect } from './PlaceSelect';
+import { COMUNI, STATI, LUOGHI, ITALY_CODE, Place } from './places';
+import { Lang, LANGS, detectLang, t, ocrLangFor } from './checkinI18n';
 
 // Hand-drawn flag icons instead of Unicode flag emoji: on Windows most browsers have no glyph for
 // flag emoji and fall back to showing the raw two-letter country code as plain text, which reads
@@ -49,29 +51,6 @@ const FLAG_ICONS: Record<Lang, React.ReactElement> = {
   ),
 };
 
-const CITIZENSHIP_OPTIONS = [
-  { name: 'Italia', code: '100000100' },
-  { name: 'Germania', code: '100000012' },
-  { name: 'Francia', code: '100000021' },
-  { name: 'Spagna', code: '100000046' },
-  { name: 'Regno Unito', code: '100000027' },
-  { name: 'Stati Uniti', code: '100000201' },
-  { name: 'Svizzera', code: '100000047' },
-  { name: 'Austria', code: '100000003' },
-  { name: 'Belgio', code: '100000004' },
-  { name: 'Paesi Bassi', code: '100000034' },
-  { name: 'Polonia', code: '100000036' },
-  { name: 'Romania', code: '100000041' },
-  { name: 'Russia', code: '100000042' },
-  { name: 'Cina', code: '100000219' },
-  { name: 'Giappone', code: '100000223' },
-  { name: 'Canada', code: '100000202' },
-  { name: 'Australia', code: '100000501' },
-  { name: 'Brasile', code: '100000302' },
-  { name: 'Argentina', code: '100000301' },
-  { name: 'Albania', code: '100000001' }
-];
-
 interface PublicCheckinPageProps {
   token: string;
 }
@@ -89,24 +68,90 @@ interface GuestProfile {
   cognome: string;
   sesso: string;
   dataNascita: string; // YYYY-MM-DD
-  luogoNascita: string;
-  cittadinanza: string; // ISTAT state code (defaults to '100000100' for Italy)
+  bornAbroad: boolean; // UI only, not sent to the server
+  luogoNascita: string; // Alloggiati Web comune code (born in Italy)
+  provinciaNascita: string; // 2-letter province (born in Italy)
+  statoNascita: string; // Alloggiati Web state code
+  cittadinanza: string; // Alloggiati Web state code (defaults to '100000100' for Italy)
   tipoDocumento?: string; // Only primary
   numeroDocumento?: string; // Only primary
   luogoRilascio?: string; // Only primary
   tipoAlloggiati?: string; // Only accompanying: 'FAMILIARE' or 'MEMBRO_GRUPPO'
 }
 
+const birthPlaceComplete = (g: GuestProfile) =>
+  g.bornAbroad ? !!g.statoNascita && g.statoNascita !== ITALY_CODE : !!g.luogoNascita && !!g.provinciaNascita;
+
+interface BirthFieldsProps {
+  guest: GuestProfile;
+  onPatch: (patch: Partial<GuestProfile>) => void;
+  tt: (key: Parameters<typeof t>[1]) => string;
+  labelClass: string;
+  inputClass: string;
+}
+
+// Birth place as Alloggiati Web wants it: Italian comune (+province) or, if born abroad, only the state.
+const BirthFields: React.FC<BirthFieldsProps> = ({ guest, onPatch, tt, labelClass, inputClass }) => (
+  <div className="grid grid-cols-2 gap-4">
+    <div>
+      <label className={labelClass}>{tt('labelNatoIn')}</label>
+      <select
+        value={guest.bornAbroad ? 'ESTERO' : 'ITALIA'}
+        onChange={(e) => {
+          const abroad = e.target.value === 'ESTERO';
+          onPatch({
+            bornAbroad: abroad,
+            luogoNascita: '',
+            provinciaNascita: '',
+            statoNascita: abroad ? '' : ITALY_CODE,
+          });
+        }}
+        className={`${inputClass} bg-white`}
+      >
+        <option value="ITALIA">{tt('optionNatoItalia')}</option>
+        <option value="ESTERO">{tt('optionNatoEstero')}</option>
+      </select>
+    </div>
+    <div>
+      <label className={labelClass}>{guest.bornAbroad ? tt('labelStatoNascita') : tt('labelComuneNascita')}</label>
+      {guest.bornAbroad ? (
+        <PlaceSelect
+          key="stato"
+          options={STATI.filter(s => s.code !== ITALY_CODE)}
+          value={guest.statoNascita}
+          onChange={(p: Place | null) => onPatch({ statoNascita: p ? p.code : '' })}
+          placeholder={tt('placeholderSearchPlace')}
+          noResultsText={tt('noResultsText')}
+          pickFromListText={tt('pickFromListText')}
+          className={inputClass}
+          required
+        />
+      ) : (
+        <PlaceSelect
+          key="comune"
+          options={COMUNI}
+          value={guest.luogoNascita}
+          onChange={(p: Place | null) =>
+            onPatch({
+              luogoNascita: p ? p.code : '',
+              provinciaNascita: p?.province ?? '',
+              statoNascita: ITALY_CODE,
+            })
+          }
+          placeholder={tt('placeholderSearchPlace')}
+          noResultsText={tt('noResultsText')}
+          pickFromListText={tt('pickFromListText')}
+          className={inputClass}
+          required
+        />
+      )}
+    </div>
+  </div>
+);
+
 export const PublicCheckinPage: React.FC<PublicCheckinPageProps> = ({ token }) => {
   const [lang, setLang] = useState<Lang>(() => detectLang());
   const tt = (key: Parameters<typeof t>[1], vars?: Record<string, string | number>) => t(lang, key, vars);
-
-  const citizenshipOptions = useMemo(() =>
-    CITIZENSHIP_OPTIONS
-      .map(c => ({ code: c.code, name: localizedCountryName(c.code, c.name, lang) }))
-      .sort((a, b) => a.name.localeCompare(b.name, lang)),
-    [lang]
-  );
 
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -120,9 +165,12 @@ export const PublicCheckinPage: React.FC<PublicCheckinPageProps> = ({ token }) =
     cognome: '',
     sesso: 'M',
     dataNascita: '',
+    bornAbroad: false,
     luogoNascita: '',
-    cittadinanza: '100000100', // Default Italy
-    tipoDocumento: 'CARTA_IDENTITA',
+    provinciaNascita: '',
+    statoNascita: ITALY_CODE,
+    cittadinanza: ITALY_CODE,
+    tipoDocumento: 'IDENT',
     numeroDocumento: '',
     luogoRilascio: ''
   });
@@ -173,14 +221,21 @@ export const PublicCheckinPage: React.FC<PublicCheckinPageProps> = ({ token }) =
       cognome: '',
       sesso: 'M',
       dataNascita: '',
+      bornAbroad: false,
       luogoNascita: '',
-      cittadinanza: '100000100',
+      provinciaNascita: '',
+      statoNascita: ITALY_CODE,
+      cittadinanza: ITALY_CODE,
       tipoAlloggiati: 'FAMILIARE'
     }]);
   };
 
   const removeAccompanying = (index: number) => {
     setAccompanying(accompanying.filter((_, i) => i !== index));
+  };
+
+  const patchAccompanying = (index: number, patch: Partial<GuestProfile>) => {
+    setAccompanying(prev => prev.map((g, i) => (i === index ? { ...g, ...patch } : g)));
   };
 
   const handleAccompanyingChange = (index: number, field: keyof GuestProfile, value: string) => {
@@ -229,7 +284,7 @@ export const PublicCheckinPage: React.FC<PublicCheckinPageProps> = ({ token }) =
   // Submit complete check-in
   const handleCheckinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!primary.nome || !primary.cognome || !primary.dataNascita || !primary.cittadinanza || !primary.numeroDocumento) {
+    if (!primary.nome || !primary.cognome || !primary.dataNascita || !primary.cittadinanza || !primary.numeroDocumento || !primary.luogoRilascio || !birthPlaceComplete(primary)) {
       Swal.fire(tt('validationTitle'), tt('validationPrimaryText'), 'warning');
       return;
     }
@@ -237,7 +292,7 @@ export const PublicCheckinPage: React.FC<PublicCheckinPageProps> = ({ token }) =
     // Validate accompanying guests fields
     for (let i = 0; i < accompanying.length; i++) {
       const acc = accompanying[i];
-      if (!acc.nome || !acc.cognome || !acc.dataNascita) {
+      if (!acc.nome || !acc.cognome || !acc.dataNascita || !acc.cittadinanza || !birthPlaceComplete(acc)) {
         Swal.fire(tt('validationTitle'), tt('validationAccompanyingText', { n: i + 1 }), 'warning');
         return;
       }
@@ -245,7 +300,7 @@ export const PublicCheckinPage: React.FC<PublicCheckinPageProps> = ({ token }) =
 
     setSubmitting(true);
     try {
-      const payload = [primary, ...accompanying];
+      const payload = [primary, ...accompanying].map(({ bornAbroad, ...g }) => g);
       const res = await fetch(`/api/v1/public/checkin/${token}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -429,30 +484,26 @@ export const PublicCheckinPage: React.FC<PublicCheckinPageProps> = ({ token }) =
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 ml-1">{tt('labelLuogoNascita')}</label>
-                  <input
-                    type="text"
-                    required
-                    value={primary.luogoNascita}
-                    onChange={(e) => setPrimary({ ...primary, luogoNascita: e.target.value })}
-                    className="glass-input block w-full px-3.5 py-3 rounded-xl text-slate-900 text-sm focus:outline-none"
-                    placeholder={tt('placeholderLuogoNascita')}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 ml-1">{tt('labelCittadinanza')}</label>
-                  <select
-                    value={primary.cittadinanza}
-                    onChange={(e) => setPrimary({ ...primary, cittadinanza: e.target.value })}
-                    className="glass-input block w-full px-3 py-3 rounded-xl text-slate-900 text-sm focus:outline-none bg-white"
-                  >
-                    {citizenshipOptions.map(c => (
-                      <option key={c.code} value={c.code}>{c.name}</option>
-                    ))}
-                  </select>
-                </div>
+              <BirthFields
+                guest={primary}
+                onPatch={(patch) => setPrimary(p => ({ ...p, ...patch }))}
+                tt={tt}
+                labelClass="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 ml-1"
+                inputClass="glass-input block w-full px-3.5 py-3 rounded-xl text-slate-900 text-sm focus:outline-none"
+              />
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 ml-1">{tt('labelCittadinanza')}</label>
+                <PlaceSelect
+                  options={STATI}
+                  value={primary.cittadinanza}
+                  onChange={(p) => setPrimary(g => ({ ...g, cittadinanza: p ? p.code : '' }))}
+                  placeholder={tt('placeholderSearchPlace')}
+                  noResultsText={tt('noResultsText')}
+                  pickFromListText={tt('pickFromListText')}
+                  className="glass-input block w-full px-3.5 py-3 rounded-xl text-slate-900 text-sm focus:outline-none"
+                  required
+                />
               </div>
 
               <div className="border-t border-slate-200/50 pt-4 space-y-4">
@@ -466,9 +517,9 @@ export const PublicCheckinPage: React.FC<PublicCheckinPageProps> = ({ token }) =
                       onChange={(e) => setPrimary({ ...primary, tipoDocumento: e.target.value })}
                       className="glass-input block w-full px-3 py-3 rounded-xl text-slate-900 text-sm focus:outline-none bg-white"
                     >
-                      <option value="CARTA_IDENTITA">{tt('optionCartaIdentita')}</option>
-                      <option value="PASSAPORTO">{tt('optionPassaporto')}</option>
-                      <option value="PATENTE">{tt('optionPatente')}</option>
+                      <option value="IDENT">{tt('optionCartaIdentita')}</option>
+                      <option value="PASOR">{tt('optionPassaporto')}</option>
+                      <option value="PATEN">{tt('optionPatente')}</option>
                     </select>
                   </div>
                   <div>
@@ -486,13 +537,15 @@ export const PublicCheckinPage: React.FC<PublicCheckinPageProps> = ({ token }) =
 
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 ml-1">{tt('labelLuogoRilascio')}</label>
-                  <input
-                    type="text"
-                    required
-                    value={primary.luogoRilascio}
-                    onChange={(e) => setPrimary({ ...primary, luogoRilascio: e.target.value })}
+                  <PlaceSelect
+                    options={LUOGHI}
+                    value={primary.luogoRilascio ?? ''}
+                    onChange={(p) => setPrimary(g => ({ ...g, luogoRilascio: p ? p.code : '' }))}
+                    placeholder={tt('placeholderSearchPlace')}
+                    noResultsText={tt('noResultsText')}
+                    pickFromListText={tt('pickFromListText')}
                     className="glass-input block w-full px-3.5 py-3 rounded-xl text-slate-900 text-sm focus:outline-none"
-                    placeholder={tt('placeholderLuogoRilascio')}
+                    required
                   />
                 </div>
               </div>
@@ -605,6 +658,14 @@ export const PublicCheckinPage: React.FC<PublicCheckinPageProps> = ({ token }) =
                           </div>
                         </div>
 
+                        <BirthFields
+                          guest={acc}
+                          onPatch={(patch) => patchAccompanying(index, patch)}
+                          tt={tt}
+                          labelClass="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1"
+                          inputClass="glass-input block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
+                        />
+
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">{tt('labelTipoAssociazione')}</label>
@@ -619,15 +680,16 @@ export const PublicCheckinPage: React.FC<PublicCheckinPageProps> = ({ token }) =
                           </div>
                           <div>
                             <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">{tt('labelCittadinanza')}</label>
-                            <select
+                            <PlaceSelect
+                              options={STATI}
                               value={acc.cittadinanza}
-                              onChange={(e) => handleAccompanyingChange(index, 'cittadinanza', e.target.value)}
-                              className="glass-input block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none bg-white"
-                            >
-                              {citizenshipOptions.map(c => (
-                                <option key={c.code} value={c.code}>{c.name}</option>
-                              ))}
-                            </select>
+                              onChange={(p) => patchAccompanying(index, { cittadinanza: p ? p.code : '' })}
+                              placeholder={tt('placeholderSearchPlace')}
+                              noResultsText={tt('noResultsText')}
+                              pickFromListText={tt('pickFromListText')}
+                              className="glass-input block w-full px-3 py-2 rounded-xl text-slate-900 text-xs focus:outline-none"
+                              required
+                            />
                           </div>
                         </div>
                       </div>

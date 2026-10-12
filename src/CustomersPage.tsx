@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from './api';
 import { Search, X, User, ChevronLeft, ChevronRight, Calendar, RefreshCw } from 'lucide-react';
+import { findPlace, placeLabel, DOCUMENTI } from './places';
 
 interface Customer {
   id: number;
@@ -9,6 +10,8 @@ interface Customer {
   sesso: string;
   dataNascita: string;
   luogoNascita: string;
+  provinciaNascita?: string;
+  statoNascita?: string;
   cittadinanza: string;
   tipoDocumento: string;
   numeroDocumento: string;
@@ -38,33 +41,19 @@ interface PageResult {
   size: number;
 }
 
-const CITIZENSHIP_LABEL: Record<string, string> = {
-  '100000100': 'Italia',
-  '100000012': 'Germania',
-  '100000021': 'Francia',
-  '100000046': 'Spagna',
-  '100000027': 'Regno Unito',
-  '100000201': 'Stati Uniti',
-  '100000047': 'Svizzera',
-  '100000003': 'Austria',
-  '100000004': 'Belgio',
-  '100000034': 'Paesi Bassi',
-  '100000036': 'Polonia',
-  '100000041': 'Romania',
-  '100000042': 'Russia',
-  '100000219': 'Cina',
-  '100000223': 'Giappone',
-  '100000202': 'Canada',
-  '100000501': 'Australia',
-  '100000302': 'Brasile',
-  '100000301': 'Argentina',
-  '100000001': 'Albania',
-};
 
 const DOC_LABEL: Record<string, string> = {
-  CARTA_IDENTITA: 'Carta d\'identità',
+  ...Object.fromEntries(DOCUMENTI.map(d => [d.code, d.name])),
+  CARTA_IDENTITA: "Carta d'identità",
   PASSAPORTO: 'Passaporto',
   PATENTE: 'Patente',
+};
+
+// Official code -> readable place name; anything that is not a known code (old free text) is shown as is.
+const placeName = (v?: string | null): string => {
+  if (!v) return '—';
+  const pl = findPlace(v);
+  return pl ? placeLabel(pl) : v;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -205,7 +194,7 @@ export const CustomersPage: React.FC = () => {
                     <td className="px-4 py-3 text-slate-700">{c.nome}</td>
                     <td className="px-4 py-3 text-slate-500">{c.sesso || '—'}</td>
                     <td className="px-4 py-3 text-slate-600">{formatDate(c.dataNascita)}</td>
-                    <td className="px-4 py-3 text-slate-600">{CITIZENSHIP_LABEL[c.cittadinanza] ?? c.cittadinanza}</td>
+                    <td className="px-4 py-3 text-slate-600">{placeName(c.cittadinanza)}</td>
                     <td className="px-4 py-3 text-slate-500 font-mono">{c.numeroDocumento || '—'}</td>
                     <td className="px-4 py-3 text-slate-400">{c.dataCreazione ? formatDate(c.dataCreazione) : '—'}</td>
                   </tr>
@@ -280,9 +269,9 @@ export const CustomersPage: React.FC = () => {
                     <dt className="text-slate-500">Data nascita</dt>
                     <dd className="text-slate-800 font-medium">{formatDate(selectedDetail.customer.dataNascita)}</dd>
                     <dt className="text-slate-500">Luogo nascita</dt>
-                    <dd className="text-slate-800 font-medium">{selectedDetail.customer.luogoNascita || '—'}</dd>
+                    <dd className="text-slate-800 font-medium">{selectedDetail.customer.statoNascita && selectedDetail.customer.statoNascita !== '100000100' ? placeName(selectedDetail.customer.statoNascita) : placeName(selectedDetail.customer.luogoNascita)}</dd>
                     <dt className="text-slate-500">Cittadinanza</dt>
-                    <dd className="text-slate-800 font-medium">{CITIZENSHIP_LABEL[selectedDetail.customer.cittadinanza] ?? selectedDetail.customer.cittadinanza}</dd>
+                    <dd className="text-slate-800 font-medium">{placeName(selectedDetail.customer.cittadinanza)}</dd>
                   </dl>
                 </div>
 
@@ -295,7 +284,7 @@ export const CustomersPage: React.FC = () => {
                     <dt className="text-slate-500">Numero</dt>
                     <dd className="text-slate-800 font-mono font-medium">{selectedDetail.customer.numeroDocumento || '—'}</dd>
                     <dt className="text-slate-500">Rilasciato a</dt>
-                    <dd className="text-slate-800 font-medium">{selectedDetail.customer.luogoRilascio || '—'}</dd>
+                    <dd className="text-slate-800 font-medium">{placeName(selectedDetail.customer.luogoRilascio)}</dd>
                   </dl>
                 </div>
 

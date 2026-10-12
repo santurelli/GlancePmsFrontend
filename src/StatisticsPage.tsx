@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { findPlace } from './places';
 import { TrendingUp, BedDouble, Users, CalendarRange, Globe, Home, Euro, Wallet, Info } from 'lucide-react';
 
 /* ─── Interfaces ─────────────────────────────────────────────────── */
@@ -46,18 +47,8 @@ const SOURCE_TEXT: Record<string, string> = {
   EXTERNAL_ICAL: 'text-slate-500',
 };
 
-const CITIZENSHIP_LABEL: Record<string, string> = {
-  '100000100': 'Italia',       '100000012': 'Germania',
-  '100000021': 'Francia',      '100000046': 'Spagna',
-  '100000027': 'Regno Unito',  '100000201': 'Stati Uniti',
-  '100000047': 'Svizzera',     '100000003': 'Austria',
-  '100000004': 'Belgio',       '100000034': 'Paesi Bassi',
-  '100000036': 'Polonia',      '100000041': 'Romania',
-  '100000042': 'Russia',       '100000219': 'Cina',
-  '100000223': 'Giappone',     '100000202': 'Canada',
-  '100000501': 'Australia',    '100000302': 'Brasile',
-  '100000301': 'Argentina',    '100000001': 'Albania',
-};
+// Names come from the official Alloggiati Web state table (same codes stored on the customer).
+const citizenshipName = (code: string): string => findPlace(code)?.name ?? code;
 
 const MONTH_NAMES = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
 
@@ -240,7 +231,7 @@ export const StatisticsPage: React.FC<Props> = ({ reservations, rooms }) => {
       if (c) map[c] = (map[c] ?? 0) + 1;
     });
     return Object.entries(map)
-      .map(([code, count]) => ({ label: CITIZENSHIP_LABEL[code] ?? code, count }))
+      .map(([code, count]) => ({ label: citizenshipName(code), count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
   }, [humanRes]);
